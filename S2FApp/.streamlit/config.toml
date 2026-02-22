@@ -1,0 +1,3 @@
+[server]
+# Required for file uploads on Hugging Face Spaces (iframe blocks XSRF cookies)
+enableXsrfProtection = false

@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 
 # Copy app code (chown for HF Spaces permissions)
 COPY --chown=user:user app.py predictor.py download_ckp.py ./
+COPY --chown=user:user .streamlit/ .streamlit/
 COPY --chown=user:user models/ models/
 COPY --chown=user:user utils/ utils/
 COPY --chown=user:user config/ config/
@@ -41,4 +42,4 @@ RUN chown -R user:user ckp
 USER user
 
 EXPOSE 8501
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableXsrfProtection=false"]
