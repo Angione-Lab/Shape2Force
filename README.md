@@ -32,7 +32,7 @@ cd S2FApp && streamlit run app.py
 1. Choose **Model type**: Single cell or Spheroid
 2. Select a **Checkpoint** from `ckp/`
 3. For single-cell: pick **Substrate** (e.g. fibroblasts_PDMS)
-4. Upload an image or pick from `sample/`
+4. Upload an image or pick from `samples/`
 5. Click **Run prediction**
 
 Output: heatmap, cell force (sum), and basic stats.

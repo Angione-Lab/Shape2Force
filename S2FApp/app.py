@@ -31,7 +31,7 @@ st.caption("Predict force maps from bright field microscopy images")
 
 # Folders
 ckp_folder = os.path.join(S2F_ROOT, "ckp")
-sample_folder = os.path.join(S2F_ROOT, "sample")
+sample_folder = os.path.join(S2F_ROOT, "samples")
 ckp_files = []
 if os.path.isdir(ckp_folder):
     ckp_files = sorted([f for f in os.listdir(ckp_folder) if f.endswith(".pth")])
@@ -120,7 +120,7 @@ else:
             sample_path = os.path.join(sample_folder, selected_sample)
             img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
         # Show sample thumbnails
-        st.caption("Sample images (add more to the `sample/` folder)")
+        st.caption("Sample images (add more to the `samples/` folder)")
         n_cols = min(4, len(sample_files))
         cols = st.columns(n_cols)
         for i, fname in enumerate(sample_files[:8]):  # show up to 8
@@ -130,7 +130,7 @@ else:
                 if sample_img is not None:
                     st.image(sample_img, caption=fname, width='content')
     else:
-        st.info("No sample images found. Add images to the `sample/` folder, or use Upload.")
+        st.info("No sample images found. Add images to the `samples/` folder, or use Upload.")
 
 run = st.button("Run prediction", type="primary")
 has_image = img is not None
@@ -202,4 +202,4 @@ elif run and not has_image:
 
 # Footer
 st.sidebar.divider()
-st.sidebar.caption("Place .pth checkpoints in the ckp/ folder")
+st.sidebar.caption("Place .pth checkpoints in ckp/, sample images in samples/")

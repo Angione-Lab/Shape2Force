@@ -24,7 +24,8 @@ COPY --chown=user:user app.py predictor.py download_ckp.py ./
 COPY --chown=user:user models/ models/
 COPY --chown=user:user utils/ utils/
 COPY --chown=user:user config/ config/
-RUN mkdir -p ckp sample && chown -R user:user ckp sample
+COPY --chown=user:user samples/ samples/
+RUN mkdir -p ckp && chown user:user ckp
 
 # Download checkpoints from Hugging Face if ckp is empty (for Space deployment)
 # Requires HF_TOKEN secret in Space Settings (https://huggingface.co/settings/tokens)
