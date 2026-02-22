@@ -18,7 +18,6 @@ S2F_ROOT = os.path.dirname(os.path.abspath(__file__))
 if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
-from predictor import S2FPredictor
 from utils.substrate_settings import list_substrates
 
 st.set_page_config(page_title="Shape2Force (S2F)", page_icon="🔬", layout="centered")
@@ -139,6 +138,7 @@ has_image = img is not None
 if run and checkpoint and has_image:
     with st.spinner("Loading model and predicting..."):
         try:
+            from predictor import S2FPredictor
             predictor = S2FPredictor(
                 model_type=model_type,
                 checkpoint_path=checkpoint,

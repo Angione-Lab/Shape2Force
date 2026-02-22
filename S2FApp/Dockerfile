@@ -15,11 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies (exclude heavy training deps for smaller image)
-RUN pip install --no-cache-dir \
-    torch torchvision \
-    numpy opencv-python streamlit matplotlib Pillow plotly \
-    huggingface_hub
+# Install Python dependencies - CPU-only PyTorch to fit Space memory limits (avoids OOM)
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir numpy opencv-python streamlit matplotlib Pillow plotly huggingface_hub
 
 # Copy app code (chown for HF Spaces permissions)
 COPY --chown=user:user app.py predictor.py download_ckp.py ./
