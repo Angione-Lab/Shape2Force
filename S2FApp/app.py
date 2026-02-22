@@ -136,7 +136,7 @@ run = st.button("Run prediction", type="primary")
 has_image = img is not None
 
 if run and checkpoint and has_image:
-    st.markdown(f"**Loading checkpoint:** `{checkpoint}`")
+    st.markdown(f"**Using checkpoint:** `{checkpoint}`")
     with st.spinner("Loading model and predicting..."):
         try:
             from predictor import S2FPredictor
