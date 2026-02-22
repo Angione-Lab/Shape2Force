@@ -29,10 +29,12 @@ COPY --chown=user:user config/ config/
 RUN mkdir -p ckp sample && chown -R user:user ckp sample
 
 # Download checkpoints from Hugging Face if ckp is empty (for Space deployment)
-# Set HF_MODEL_REPO env to your model repo, e.g. kaveh/Shape2Force
+# Requires HF_TOKEN secret in Space Settings (https://huggingface.co/settings/tokens)
+# for private model repos. Set HF_MODEL_REPO to your model repo, e.g. kaveh/Shape2Force
 ARG HF_MODEL_REPO=kaveh/Shape2Force
 ENV HF_MODEL_REPO=${HF_MODEL_REPO}
-RUN python download_ckp.py
+RUN --mount=type=secret,id=HF_TOKEN,mode=0444,required=true \
+    HF_TOKEN=$(cat /run/secrets/HF_TOKEN) python download_ckp.py
 
 # Ensure ckp contents are readable by user
 RUN chown -R user:user ckp
