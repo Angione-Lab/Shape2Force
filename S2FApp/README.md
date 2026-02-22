@@ -15,6 +15,10 @@ app_port: 8501
 
 # Shape2Force (S2F) App
 
+<p align="center">
+  <img src="res/webapp.png" width="450" alt="Shape2Force Web App" />
+</p>
+
 Predict force maps from bright-field microscopy images using deep learning. 
 
 ## Quick Start

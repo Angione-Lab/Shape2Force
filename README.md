@@ -7,6 +7,7 @@ Predict force maps from bright-field microscopy images of single-cell or spheroi
 ## Ways to Use S2F
 
 ### 1. Web App (local)
+
 Run the Streamlit GUI from `S2FApp/`:
 ```bash
 git clone https://github.com/Angione-Lab/Shape2Force.git
