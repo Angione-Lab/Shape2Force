@@ -1,4 +1,8 @@
 ---
+title: Shape2Force
+emoji: 🦠
+colorFrom: indigo
+colorTo: blue
 tags:
 - cell-mechanobiology
 - microscopy
