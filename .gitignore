@@ -1,2 +1,8 @@
 Archive/
 .DS_Store
+
+dataset/
+
+*_pycache*/
+
+test/
