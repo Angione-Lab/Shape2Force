@@ -14,7 +14,8 @@ S2F_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
-from models.s2f_model import create_settings_channels, compute_settings_normalization
+from models.s2f_model import create_settings_channels
+from utils.substrate_settings import compute_settings_normalization
 from utils.metrics import calculate_psnr, calculate_ssim_tensor, calculate_pearson_correlation
 from scipy.stats import pearsonr
 

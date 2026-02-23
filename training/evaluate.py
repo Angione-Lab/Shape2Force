@@ -31,7 +31,8 @@ def main():
     args = parser.parse_args()
 
     from data.cell_dataset import load_folder_data
-    from models.s2f_model import create_s2f_model, compute_settings_normalization
+    from models.s2f_model import create_s2f_model
+    from utils.substrate_settings import compute_settings_normalization
     from utils.metrics import (
         evaluate_metrics_on_dataset,
         print_metrics_report,
@@ -54,7 +55,8 @@ def main():
     )
 
     in_channels = 3 if use_settings else 1
-    generator, _ = create_s2f_model(in_channels=in_channels)
+    model_type = 's2f' if use_settings else 's2f_spheroid'
+    generator, _ = create_s2f_model(in_channels=in_channels, model_type=model_type)
     ckpt = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
     generator.load_state_dict(ckpt.get('generator_state_dict', ckpt), strict=True)
 

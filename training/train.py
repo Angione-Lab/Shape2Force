@@ -54,7 +54,8 @@ def main():
     )
 
     in_channels = 3 if use_settings else 1
-    generator, discriminator = create_s2f_model(in_channels=in_channels)
+    model_type = 's2f' if use_settings else 's2f_spheroid'
+    generator, discriminator = create_s2f_model(in_channels=in_channels, model_type=model_type)
 
     if args.resume:
         ckpt = __import__('torch').load(args.resume, map_location='cpu', weights_only=False)
