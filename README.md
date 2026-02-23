@@ -28,17 +28,20 @@ streamlit run app.py
 Use the [online app](https://huggingface.co/spaces/kaveh/Shape2force) on Hugging Face. 
 
 <p align="center">
-  <img src="./S2FApp/res/webapp.png" width="450" alt="Shape2Force Web App" />
+  <img src="./S2FApp/res/ss.png" width="450" alt="Shape2Force Web App" />
 </p>
 
 ---
-### 3. Jupyter Notebook
+### 3. Jupyter Notebooks
 
-For interactive usage and custom analysis, you may use the notebook:
+For interactive usage and custom analysis, use the notebooks in `notebooks/`:
 
-- **`notebooks/demo.ipynb`** – Load data, run evaluation, plot predictions, and save per-sample metrics.
+- **`notebooks/Singlecell_inference.ipynb`** – Load a folder of brightfield images, run single-cell predictions, plot samples, and save all predictions with metrics.
+- **`notebooks/Singlecell_evaluation.ipynb`** – Evaluate single-cell model on a dataset with ground truth; compute metrics and plot predictions.
+- **`notebooks/Spheroid_inference.ipynb`** – Run spheroid predictions on brightfield images, plot samples, and save predictions.
+- **`notebooks/Spheroid_evaluation.ipynb`** – Evaluate spheroid model on as dataset with ground truth; compute metrics and plot predictions.
 
-Once cloned the repo. open the notebook in Jupyter and adjust the configuration cell (paths, model type, substrate).
+Once cloned, open a notebook in Jupyter and adjust the configuration cell (paths, model type, substrate).
 
 ---
 
@@ -51,17 +54,28 @@ Once cloned the repo. open the notebook in Jupyter and adjust the configuration 
 
 **Single-cell:**
 ```bash
-python -m training.train --data path/to/dataset --model single_cell --epochs 100 --substrate fibroblasts_PDMS
+python -m training.train \
+  --data path/to/dataset \
+  --model single_cell \
+  --epochs 100 \
+  --substrate fibroblasts_PDMS
 ```
 
 **Spheroid:**
 ```bash
-python -m training.train --data path/to/dataset --model spheroid --epochs 100
+python -m training.train \
+  --data path/to/dataset \
+  --model spheroid \
+  --epochs 100
 ```
 
 **Resume / fine-tune from checkpoint:**
 ```bash
-python -m training.train --data path/to/dataset --model single_cell --resume ckp/last_checkpoint.pth --epochs 150
+python -m training.train \
+  --data path/to/dataset \
+  --model single_cell \
+  --resume ckp/last_checkpoint.pth \
+  --epochs 150
 ```
 
 ---
