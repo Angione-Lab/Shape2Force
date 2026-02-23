@@ -29,17 +29,37 @@ st.markdown("""
 st.title("🔬 Shape2Force (S2F)")
 st.caption("Predict force maps from bright field microscopy images")
 
-# Folders
-ckp_folder = os.path.join(S2F_ROOT, "ckp")
-sample_folder = os.path.join(S2F_ROOT, "samples")
-ckp_files = []
-if os.path.isdir(ckp_folder):
-    ckp_files = sorted([f for f in os.listdir(ckp_folder) if f.endswith(".pth")])
+# Folders: checkpoints in subfolders by model type (single_cell / spheroid)
+ckp_base = os.path.join(S2F_ROOT, "ckp")
+# Fallback: use project root ckp when running from S2F repo (ckp at S2F/ckp/)
+if not os.path.isdir(ckp_base):
+    project_root = os.path.dirname(S2F_ROOT)
+    if os.path.isdir(os.path.join(project_root, "ckp")):
+        ckp_base = os.path.join(project_root, "ckp")
+ckp_single_cell = os.path.join(ckp_base, "single_cell")
+ckp_spheroid = os.path.join(ckp_base, "spheroid")
+sample_base = os.path.join(S2F_ROOT, "samples")
+sample_single_cell = os.path.join(sample_base, "single_cell")
+sample_spheroid = os.path.join(sample_base, "spheroid")
+
 SAMPLE_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
-sample_files = []
-if os.path.isdir(sample_folder):
-    sample_files = sorted([f for f in os.listdir(sample_folder)
-                          if f.lower().endswith(SAMPLE_EXTENSIONS)])
+
+
+def get_ckp_files_for_model(model_type):
+    """Return list of .pth files in the checkpoint folder for the given model type."""
+    folder = ckp_single_cell if model_type == "single_cell" else ckp_spheroid
+    if os.path.isdir(folder):
+        return sorted([f for f in os.listdir(folder) if f.endswith(".pth")])
+    return []
+
+
+def get_sample_files_for_model(model_type):
+    """Return list of sample images in the sample folder for the given model type."""
+    folder = sample_single_cell if model_type == "single_cell" else sample_spheroid
+    if os.path.isdir(folder):
+        return sorted([f for f in os.listdir(folder)
+                       if f.lower().endswith(SAMPLE_EXTENSIONS)])
+    return []
 
 # Sidebar: model configuration
 with st.sidebar:
@@ -49,16 +69,22 @@ with st.sidebar:
         ["single_cell", "spheroid"],
         format_func=lambda x: "Single cell" if x == "single_cell" else "Spheroid",
         horizontal=False,
+        help="Single cell: substrate-aware force prediction. Spheroid: spheroid force maps.",
     )
+    st.caption(f"Inference mode: **{'Single cell' if model_type == 'single_cell' else 'Spheroid'}**")
+
+    ckp_files = get_ckp_files_for_model(model_type)
+    ckp_folder = ckp_single_cell if model_type == "single_cell" else ckp_spheroid
+    ckp_subfolder_name = "single_cell" if model_type == "single_cell" else "spheroid"
 
     if ckp_files:
         checkpoint = st.selectbox(
             "Checkpoint",
             ckp_files,
-            help="Select a .pth file from the ckp folder",
+            help=f"Select a .pth file from ckp/{ckp_subfolder_name}/",
         )
     else:
-        st.warning("No .pth files in ckp/ folder. Add checkpoints to load.")
+        st.warning(f"No .pth files in ckp/{ckp_subfolder_name}/. Add checkpoints to load.")
         checkpoint = None
 
     substrate_config = None
@@ -110,17 +136,21 @@ if img_source == "Upload":
         img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
         uploaded.seek(0)  # reset for potential re-read
 else:
+    sample_files = get_sample_files_for_model(model_type)
+    sample_folder = sample_single_cell if model_type == "single_cell" else sample_spheroid
+    sample_subfolder_name = "single_cell" if model_type == "single_cell" else "spheroid"
     if sample_files:
         selected_sample = st.selectbox(
             "Select sample image",
             sample_files,
             format_func=lambda x: x,
+            key=f"sample_{model_type}",
         )
         if selected_sample:
             sample_path = os.path.join(sample_folder, selected_sample)
             img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
-        # Show sample thumbnails
-        st.caption("Sample images (add more to the `samples/` folder)")
+        # Show sample thumbnails (filtered by model type)
+        st.caption(f"Sample images from `samples/{sample_subfolder_name}/`")
         n_cols = min(4, len(sample_files))
         cols = st.columns(n_cols)
         for i, fname in enumerate(sample_files[:8]):  # show up to 8
@@ -130,13 +160,13 @@ else:
                 if sample_img is not None:
                     st.image(sample_img, caption=fname, width='content')
     else:
-        st.info("No sample images found. Add images to the `samples/` folder, or use Upload.")
+        st.info(f"No sample images in samples/{sample_subfolder_name}/. Add images or use Upload.")
 
 run = st.button("Run prediction", type="primary")
 has_image = img is not None
 
 if run and checkpoint and has_image:
-    st.markdown(f"**Using checkpoint:** `{checkpoint}`")
+    st.markdown(f"**Using checkpoint:** `ckp/{ckp_subfolder_name}/{checkpoint}`")
     with st.spinner("Loading model and predicting..."):
         try:
             from predictor import S2FPredictor
@@ -203,4 +233,4 @@ elif run and not has_image:
 
 # Footer
 st.sidebar.divider()
-st.sidebar.caption("Place .pth checkpoints in ckp/, sample images in samples/")
+st.sidebar.caption("Checkpoints: ckp/single_cell/ and ckp/spheroid/. Samples: samples/single_cell/ and samples/spheroid/")
