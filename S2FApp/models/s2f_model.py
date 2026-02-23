@@ -370,6 +370,114 @@ class S2FGenerator(nn.Module):
         return expanded_state
 
 
+class SpheroidAttentionGate(nn.Module):
+    """Attention Gate from ForceNet2WithAttention (s2f_spheroid). Checkpoint-compatible for ckp_spheroid_*.pth."""
+    def __init__(self, F_g, F_l, F_int):
+        super(SpheroidAttentionGate, self).__init__()
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1),
+            nn.BatchNorm2d(F_int)
+        )
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1),
+            nn.BatchNorm2d(F_int)
+        )
+        self.psi = nn.Sequential(
+            nn.ReLU(inplace=True),
+            nn.Conv2d(F_int, 1, kernel_size=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.psi(g1 + x1)
+        return x * psi
+
+
+class S2FSpheroidGenerator(nn.Module):
+    """
+    S2F model tuned for spheroid data. Uses sigmoid output [0, 1] for inference.
+    """
+    def __init__(self, in_channels=1, out_channels=1, predict_numbers=False, img_size=1024, use_tanh_output=True):
+        super(S2FSpheroidGenerator, self).__init__()
+        self.predict_numbers = predict_numbers
+        self.img_size = img_size
+        self.use_tanh_output = use_tanh_output
+
+        def conv_block(in_c, out_c):
+            return nn.Sequential(
+                nn.Conv2d(in_c, out_c, 3, padding=1),
+                nn.BatchNorm2d(out_c),
+                nn.ReLU(inplace=True),
+                ResidualBlock(out_c, out_c)
+            )
+
+        # Encoder
+        self.encoder1 = conv_block(in_channels, 32)
+        self.pool1 = nn.MaxPool2d(2)
+        self.encoder2 = conv_block(32, 64)
+        self.pool2 = nn.MaxPool2d(2)
+        self.encoder3 = conv_block(64, 128)
+        self.pool3 = nn.MaxPool2d(2)
+        self.encoder4 = conv_block(128, 256)
+        self.pool4 = nn.MaxPool2d(2)
+        self.bridge = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, padding=2, dilation=2),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            ResidualBlock(512, 512)
+        )
+
+        self.att3 = SpheroidAttentionGate(256, 256, 128)
+        self.att2 = SpheroidAttentionGate(128, 128, 64)
+        self.att1 = SpheroidAttentionGate(64, 64, 32)
+
+        self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
+        self.dec3 = conv_block(512, 256)
+        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
+        self.dec2 = conv_block(256, 128)
+        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
+        self.dec1 = conv_block(128, 64)
+        self.up0 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
+        self.dec0 = conv_block(64, 32)
+        self.pred_conv = nn.Conv2d(32, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        e1 = self.encoder1(x)
+        e2 = self.encoder2(self.pool1(e1))
+        e3 = self.encoder3(self.pool2(e2))
+        e4 = self.encoder4(self.pool3(e3))
+        b = self.bridge(self.pool4(e4))
+
+        g3 = self.up3(b)
+        x3 = self.att3(g3, e4)
+        d3 = self.dec3(torch.cat([g3, x3], dim=1))
+
+        g2 = self.up2(d3)
+        x2 = self.att2(g2, e3)
+        d2 = self.dec2(torch.cat([g2, x2], dim=1))
+
+        g1 = self.up1(d2)
+        x1 = self.att1(g1, e2)
+        d1 = self.dec1(torch.cat([g1, x1], dim=1))
+
+        g0 = self.up0(d1)
+        d0 = self.dec0(torch.cat([g0, e1], dim=1))
+
+        out = self.pred_conv(d0)
+        out_resized = F.interpolate(out, size=(self.img_size, self.img_size), mode='bilinear', align_corners=False)
+
+        if self.use_tanh_output:
+            return torch.tanh(out_resized)
+        else:
+            return torch.sigmoid(out_resized)
+
+    def set_output_mode(self, use_tanh=True):
+        """Set output activation: tanh [-1,1] for training, sigmoid [0,1] for inference."""
+        self.use_tanh_output = use_tanh
+
+
 class PatchGANDiscriminator(nn.Module):
     """PatchGAN Discriminator (included for create_s2f_model compatibility)."""
     def __init__(self, in_channels=2, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
@@ -418,15 +526,27 @@ def create_s2f_model(
     use_multi_scale_input=True,
     ndf=64,
     n_layers=3,
+    model_type='s2f',
 ):
-    """Create S2F model with generator and discriminator."""
-    generator = S2FGenerator(
-        in_channels=in_channels,
-        out_channels=out_channels,
-        img_size=img_size,
-        bridge_type=bridge_type,
-        use_multi_scale_input=use_multi_scale_input,
-    )
+    """Create S2F model with generator and discriminator.
+    model_type: 's2f' for single-cell, 's2f_spheroid' for spheroid.
+    """
+    if model_type == 's2f':
+        generator = S2FGenerator(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            img_size=img_size,
+            bridge_type=bridge_type,
+            use_multi_scale_input=use_multi_scale_input,
+        )
+    elif model_type == 's2f_spheroid':
+        generator = S2FSpheroidGenerator(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            img_size=img_size,
+        )
+    else:
+        raise ValueError(f"Invalid model type: {model_type}")
     discriminator = PatchGANDiscriminator(
         in_channels=in_channels + out_channels,
         ndf=ndf,
