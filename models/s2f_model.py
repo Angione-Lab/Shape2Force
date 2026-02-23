@@ -8,12 +8,7 @@ import torch.nn.functional as F
 from .blocks import ResidualBlock
 from .cbam import CBAM
 
-from utils import config
-from utils.substrate_settings import (
-    get_settings_of_category,
-    compute_settings_normalization,
-    load_substrate_config,
-)
+from utils.substrate_settings import get_settings_of_category
 
 
 def normalize_settings(substrate_name, normalization_params, config=None, config_path=None):
@@ -37,7 +32,6 @@ def normalize_settings(substrate_name, normalization_params, config=None, config
                  (normalization_params['young']['max'] - normalization_params['young']['min'])
 
     return pixelsize_norm, young_norm
-
 
 def create_settings_channels(metadata, normalization_params, device, image_shape, config_path=None):
     """
@@ -73,9 +67,8 @@ def create_settings_channels(metadata, normalization_params, device, image_shape
 
     return settings_channels
 
-
 class GlobalContextModule(nn.Module):
-    """Global context module for capturing cell shape information"""
+    """A module for capturing cell shape information"""
     def __init__(self, in_channels):
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool2d(1)
@@ -110,9 +103,8 @@ class GlobalContextModule(nn.Module):
         multi_scale_out = self.fusion(multi_scale_out)
         return x + (large_features * global_weight) + multi_scale_out
 
-
 class HierarchicalAttention(nn.Module):
-    """Hierarchical attention combining spatial and channel attention"""
+    """A module for combining spatial and channel attention"""
     def __init__(self, channels):
         super().__init__()
         self.spatial_att = nn.Sequential(
@@ -142,9 +134,8 @@ class HierarchicalAttention(nn.Module):
         cross_weight = self.cross_att(attended)
         return x + (attended * cross_weight)
 
-
-class EnhancedAttentionGate(nn.Module):
-    """Enhanced attention gate with global context"""
+class AttentionGate(nn.Module):
+    """Attention gate with global context"""
     def __init__(self, F_g, F_l, F_int):
         super().__init__()
         self.W_g = nn.Sequential(
@@ -184,6 +175,70 @@ class EnhancedAttentionGate(nn.Module):
         return x * psi
 
 
+class SpheroidAttentionGate(nn.Module):
+    """Attention Gate from ForceNet2WithAttention (s2f_spheroid). Checkpoint-compatible for ckp_spheroid_FN.pth."""
+    def __init__(self, F_g, F_l, F_int):
+        super(SpheroidAttentionGate, self).__init__()
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1),
+            nn.BatchNorm2d(F_int)
+        )
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1),
+            nn.BatchNorm2d(F_int)
+        )
+        self.psi = nn.Sequential(
+            nn.ReLU(inplace=True),
+            nn.Conv2d(F_int, 1, kernel_size=1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.psi(g1 + x1)
+        return x * psi
+
+class PatchGANDiscriminator(nn.Module):
+    """PatchGAN Discriminator (included for create_s2f_model compatibility)."""
+    def __init__(self, in_channels=2, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        super().__init__()
+        use_bias = norm_layer == nn.InstanceNorm2d
+        self.initial_conv = nn.Sequential(
+            nn.Conv2d(in_channels, ndf, kernel_size=4, stride=2, padding=1, bias=use_bias),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.layers = nn.ModuleList()
+        nf_mult, nf_mult_prev = 1, 1
+        for n in range(1, n_layers):
+            nf_mult_prev, nf_mult = nf_mult, min(2 ** n, 8)
+            self.layers.append(nn.Sequential(
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=4, stride=2, padding=1, bias=use_bias),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, inplace=True)
+            ))
+        nf_mult_prev, nf_mult = nf_mult, min(2 ** n_layers, 8)
+        self.layers.append(nn.Sequential(
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=4, stride=1, padding=1, bias=use_bias),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2, inplace=True)
+        ))
+        self.output_conv = nn.Conv2d(ndf * nf_mult, 1, kernel_size=4, stride=1, padding=1)
+        self.attention = nn.Sequential(
+            nn.Conv2d(ndf * nf_mult, ndf * nf_mult // 4, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(ndf * nf_mult // 4, ndf * nf_mult, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        x = self.initial_conv(input)
+        for layer in self.layers:
+            x = layer(x)
+        x = x * self.attention(x)
+        return self.output_conv(x)
+
+
 class S2FGenerator(nn.Module):
     """
     S2F (Shape2Force) model: U-Net generator for force map prediction.
@@ -217,7 +272,7 @@ class S2FGenerator(nn.Module):
         else:
             self.initial_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
 
-        def enhanced_conv_block(in_c, out_c, use_attention=True):
+        def reg_conv_block(in_c, out_c, use_attention=True):
             layers = [
                 nn.Conv2d(in_c, out_c, 3, padding=1),
                 nn.BatchNorm2d(out_c),
@@ -239,9 +294,9 @@ class S2FGenerator(nn.Module):
                 layers.append(GlobalContextModule(out_c))
             return nn.Sequential(*layers)
 
-        self.encoder1 = enhanced_conv_block(64, 64, use_attention=False)
+        self.encoder1 = reg_conv_block(64, 64, use_attention=False)
         self.pool1 = nn.MaxPool2d(2)
-        self.encoder2 = enhanced_conv_block(64, 128, use_attention=True)
+        self.encoder2 = reg_conv_block(64, 128, use_attention=True)
         self.pool2 = nn.MaxPool2d(2)
         self.encoder3 = dilated_conv_block(128, 256, use_global_context=True)
         self.pool3 = nn.MaxPool2d(2)
@@ -262,22 +317,22 @@ class S2FGenerator(nn.Module):
                 HierarchicalAttention(1024)
             )
 
-        self.att4 = EnhancedAttentionGate(512, 512, 256)
-        self.att3 = EnhancedAttentionGate(256, 256, 128)
-        self.att2 = EnhancedAttentionGate(128, 128, 64)
-        self.att1 = EnhancedAttentionGate(64, 64, 32)
+        self.att4 = AttentionGate(512, 512, 256)
+        self.att3 = AttentionGate(256, 256, 128)
+        self.att2 = AttentionGate(128, 128, 64)
+        self.att1 = AttentionGate(64, 64, 32)
 
         self.up4 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
-        self.dec4 = enhanced_conv_block(1024, 512, use_attention=True)
+        self.dec4 = reg_conv_block(1024, 512, use_attention=True)
         self.refine4 = HierarchicalAttention(512)
         self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)
-        self.dec3 = enhanced_conv_block(512, 256, use_attention=True)
+        self.dec3 = reg_conv_block(512, 256, use_attention=True)
         self.refine3 = HierarchicalAttention(256)
         self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.dec2 = enhanced_conv_block(256, 128, use_attention=True)
+        self.dec2 = reg_conv_block(256, 128, use_attention=True)
         self.refine2 = HierarchicalAttention(128)
         self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.dec1 = enhanced_conv_block(128, 64, use_attention=True)
+        self.dec1 = reg_conv_block(128, 64, use_attention=True)
         self.refine1 = HierarchicalAttention(64)
 
         self.final_conv = nn.Sequential(
@@ -328,87 +383,128 @@ class S2FGenerator(nn.Module):
         out = self.final_conv(d1)
         return out
 
-    def load_checkpoint_with_expansion(self, checkpoint_path, strict=False):
-        """Load checkpoint and expand from 1-channel to 3-channel if needed."""
-        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-        generator_state = checkpoint['generator_state_dict']
-        needs_expansion = False
 
-        if 'scale_pyramid.0.weight' in generator_state:
-            old_shape = generator_state['scale_pyramid.0.weight'].shape
-            current_shape = self.scale_pyramid[0].weight.shape
-            if old_shape[1] != current_shape[1]:
-                needs_expansion = True
-        elif 'initial_conv.weight' in generator_state:
-            old_shape = generator_state['initial_conv.weight'].shape
-            current_shape = self.initial_conv.weight.shape
-            if old_shape[1] != current_shape[1]:
-                needs_expansion = True
+class S2FSpheroidGenerator(nn.Module):
+    """
+    A s2f model with some tunings for spheroid data
+    """
+    def __init__(self, in_channels=1, out_channels=1, predict_numbers=False, img_size=1024, use_tanh_output=True):
+        super(S2FSpheroidGenerator, self).__init__()
+        self.predict_numbers = predict_numbers
+        self.img_size = img_size
+        self.use_tanh_output = use_tanh_output
 
-        if needs_expansion:
-            generator_state = self._expand_generator_state(generator_state)
+        def conv_block(in_c, out_c):
+            return nn.Sequential(
+                nn.Conv2d(in_c, out_c, 3, padding=1),
+                nn.BatchNorm2d(out_c),
+                nn.ReLU(inplace=True),
+                ResidualBlock(out_c, out_c)
+            )
 
-        self.load_state_dict(generator_state, strict=strict)
-        return checkpoint
+        # Encoder
+        self.encoder1 = conv_block(in_channels, 32)  # [B, 32, 1024, 1024]
+        self.pool1 = nn.MaxPool2d(2)  # [B, 32, 512, 512]
+        self.encoder2 = conv_block(32, 64)  # [B, 64, 512, 512]
+        self.pool2 = nn.MaxPool2d(2)  # [B, 64, 256, 256]
+        self.encoder3 = conv_block(64, 128)  # [B, 128, 256, 256]
+        self.pool3 = nn.MaxPool2d(2)  # [B, 128, 128, 128]
+        self.encoder4 = conv_block(128, 256)  # [B, 256, 128, 128]
+        self.pool4 = nn.MaxPool2d(2)  # [B, 256, 64, 64]
+        self.bridge = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, padding=2, dilation=2),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            ResidualBlock(512, 512)
+        )  # [B, 512, 64, 64]
 
-    def _expand_generator_state(self, generator_state):
-        """Expand generator state dict from 1-channel to 3-channel input."""
-        expanded_state = generator_state.copy()
-        if 'scale_pyramid.0.weight' in generator_state:
-            for i in range(3):
-                key = f'scale_pyramid.{i}.weight' if i == 0 else f'scale_pyramid.{i}.1.weight'
-                if key in generator_state:
-                    old_weight = generator_state[key]
-                    new_weight = torch.zeros(32, 3, 3, 3)
-                    new_weight[:, 0:1, :, :] = old_weight
-                    expanded_state[key] = new_weight
-        elif 'initial_conv.weight' in generator_state:
-            old_weight = generator_state['initial_conv.weight']
-            new_weight = torch.zeros(64, 3, 3, 3)
-            new_weight[:, 0:1, :, :] = old_weight
-            expanded_state['initial_conv.weight'] = new_weight
-        return expanded_state
+        # Attention Gates (SpheroidAttentionGate from s2f_spheroid, matches ckp_spheroid_FN.pth)
+        self.att3 = SpheroidAttentionGate(256, 256, 128)
+        self.att2 = SpheroidAttentionGate(128, 128, 64)
+        self.att1 = SpheroidAttentionGate(64, 64, 32)
 
+        # Decoder
+        self.up3 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)  # [B, 256, 128, 128]
+        self.dec3 = conv_block(512, 256)  # [B, 256, 128, 128]
+        self.up2 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)  # [B, 128, 256, 256]
+        self.dec2 = conv_block(256, 128)  # [B, 128, 256, 256]
+        self.up1 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)   # [B, 64, 512, 512]
+        self.dec1 = conv_block(128, 64)   # [B, 64, 512, 512]
+        self.up0 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)    # [B, 32, 1024, 1024]
+        self.dec0 = conv_block(64, 32)    # [B, 32, 1024, 1024]
+        
+        # Final prediction
+        self.pred_conv = nn.Conv2d(32, out_channels, kernel_size=1)  # [B, 1, 1024, 1024]
 
-class PatchGANDiscriminator(nn.Module):
-    """PatchGAN Discriminator (included for create_s2f_model compatibility)."""
-    def __init__(self, in_channels=2, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
-        super().__init__()
-        use_bias = norm_layer == nn.InstanceNorm2d
-        self.initial_conv = nn.Sequential(
-            nn.Conv2d(in_channels, ndf, kernel_size=4, stride=2, padding=1, bias=use_bias),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.layers = nn.ModuleList()
-        nf_mult, nf_mult_prev = 1, 1
-        for n in range(1, n_layers):
-            nf_mult_prev, nf_mult = nf_mult, min(2 ** n, 8)
-            self.layers.append(nn.Sequential(
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=4, stride=2, padding=1, bias=use_bias),
-                norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2, inplace=True)
-            ))
-        nf_mult_prev, nf_mult = nf_mult, min(2 ** n_layers, 8)
-        self.layers.append(nn.Sequential(
-            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=4, stride=1, padding=1, bias=use_bias),
-            norm_layer(ndf * nf_mult),
-            nn.LeakyReLU(0.2, inplace=True)
-        ))
-        self.output_conv = nn.Conv2d(ndf * nf_mult, 1, kernel_size=4, stride=1, padding=1)
-        self.attention = nn.Sequential(
-            nn.Conv2d(ndf * nf_mult, ndf * nf_mult // 4, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(ndf * nf_mult // 4, ndf * nf_mult, 1),
-            nn.Sigmoid()
-        )
+    def forward(self, x):  # Input: [B, 1, 1024, 1024]
+        # Encoder
+        e1 = self.encoder1(x)            # [B, 32, 1024, 1024]
+        e2 = self.encoder2(self.pool1(e1))  # [B, 64, 512, 512]
+        e3 = self.encoder3(self.pool2(e2))  # [B, 128, 256, 256]
+        e4 = self.encoder4(self.pool3(e3))  # [B, 256, 128, 128]
+        b = self.bridge(self.pool4(e4))     # [B, 512, 64, 64]
 
-    def forward(self, input):
-        x = self.initial_conv(input)
-        for layer in self.layers:
-            x = layer(x)
-        x = x * self.attention(x)
-        return self.output_conv(x)
+        # Decoder + Attention
+        g3 = self.up3(b)  # [B, 256, 128, 128]
+        x3 = self.att3(g3, e4)  # [B, 256, 128, 128]
+        d3 = self.dec3(torch.cat([g3, x3], dim=1))  # [B, 256, 128, 128]
 
+        g2 = self.up2(d3)  # [B, 128, 256, 256]
+        x2 = self.att2(g2, e3)  # [B, 128, 256, 256]
+        d2 = self.dec2(torch.cat([g2, x2], dim=1))  # [B, 128, 256, 256]
+
+        g1 = self.up1(d2)  # [B, 64, 512, 512]
+        x1 = self.att1(g1, e2)  # [B, 64, 512, 512]
+        d1 = self.dec1(torch.cat([g1, x1], dim=1))  # [B, 64, 512, 512]
+
+        g0 = self.up0(d1)  # [B, 32, 1024, 1024]
+        d0 = self.dec0(torch.cat([g0, e1], dim=1))  # [B, 32, 1024, 1024]
+ 
+        out = self.pred_conv(d0)  # [B, 1, 1024, 1024]
+        out_resized = F.interpolate(out, size=(self.img_size, self.img_size), mode='bilinear', align_corners=False)
+        
+        if self.use_tanh_output:
+            return torch.tanh(out_resized)  # [-1, 1] for Pix2Pix training
+        else:
+            return torch.sigmoid(out_resized)  # [0, 1] for direct inference
+
+    def predict(self, loader):
+        """
+        Predict on the first batch from the loader
+        """
+        self.eval()
+        with torch.no_grad():
+            # Get first batch from loader
+            batch = next(iter(loader))
+            input_images, ground_truth_heatmaps, _, _ = batch  # Ignore cell_area and cell_force
+            
+            # Move to same device as model
+            device = next(self.parameters()).device
+            input_images = input_images.to(device)
+            ground_truth_heatmaps = ground_truth_heatmaps.to(device)
+            
+            # Get predictions
+            predicted_heatmaps = self(input_images)
+            
+            if self.use_tanh_output:
+                predicted_heatmaps = (predicted_heatmaps + 1.0) / 2.0
+            
+            return input_images, ground_truth_heatmaps, predicted_heatmaps
+
+    
+    def set_output_mode(self, use_tanh=True):
+        """
+        Set the output activation mode
+        
+        Args:
+            use_tanh: If True, use tanh output [-1, 1] for GAN training
+                     If False, use sigmoid output [0, 1] for direct inference
+        """
+        self.use_tanh_output = use_tanh
+        if use_tanh:
+            print("Generator set to tanh output mode [-1, 1] for GAN training")
+        else:
+            print("Generator set to sigmoid output mode [0, 1] for inference/evaluation")
 
 def create_s2f_model(
     in_channels=1,
@@ -418,15 +514,25 @@ def create_s2f_model(
     use_multi_scale_input=True,
     ndf=64,
     n_layers=3,
+    model_type='s2f',
 ):
     """Create S2F model with generator and discriminator."""
-    generator = S2FGenerator(
+    if model_type == 's2f':
+        generator = S2FGenerator(
         in_channels=in_channels,
         out_channels=out_channels,
         img_size=img_size,
         bridge_type=bridge_type,
         use_multi_scale_input=use_multi_scale_input,
-    )
+        )
+    elif model_type == 's2f_spheroid':
+        generator = S2FSpheroidGenerator(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            img_size=img_size,
+        )
+    else:
+        raise ValueError(f"Invalid model type: {model_type}")
     discriminator = PatchGANDiscriminator(
         in_channels=in_channels + out_channels,
         ndf=ndf,
