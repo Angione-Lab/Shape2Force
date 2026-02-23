@@ -151,7 +151,7 @@ else:
             img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
         # Show sample thumbnails (filtered by model type)
         st.caption(f"Sample images from `samples/{sample_subfolder_name}/`")
-        n_cols = min(4, len(sample_files))
+        n_cols = min(5, len(sample_files))
         cols = st.columns(n_cols)
         for i, fname in enumerate(sample_files[:8]):  # show up to 8
             with cols[i % n_cols]:
