@@ -134,7 +134,7 @@ else:
     sample_subfolder_name = "single_cell" if model_type == "single_cell" else "spheroid"
     if sample_files:
         selected_sample = st.selectbox(
-            "Select example image",
+            f"Select example image (from `samples/{sample_subfolder_name}/`)",
             sample_files,
             format_func=lambda x: x,
             key=f"sample_{model_type}",
@@ -143,7 +143,6 @@ else:
             sample_path = os.path.join(sample_folder, selected_sample)
             img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
         # Show example thumbnails (filtered by model type)
-        st.caption(f"Example images from `samples/{sample_subfolder_name}/`")
         n_cols = min(5, len(sample_files))
         cols = st.columns(n_cols)
         for i, fname in enumerate(sample_files[:8]):  # show up to 8
@@ -155,7 +154,15 @@ else:
     else:
         st.info(f"No example images in samples/{sample_subfolder_name}/. Add images or use Upload.")
 
-run = st.button("Run prediction", type="primary")
+col_btn, col_model, col_path = st.columns([1, 1, 3])
+with col_btn:
+    run = st.button("Run prediction", type="primary")
+with col_model:
+    model_label = "Single cell" if model_type == "single_cell" else "Spheroid"
+    st.markdown(f"<span style='display: inline-flex; align-items: center; height: 38px;'>{model_label}</span>", unsafe_allow_html=True)
+with col_path:
+    ckp_path = f"ckp/{ckp_subfolder_name}/{checkpoint}" if checkpoint else f"ckp/{ckp_subfolder_name}/"
+    st.markdown(f"<span style='display: inline-flex; align-items: center; height: 38px;'>Checkpoint: <code>{ckp_path}</code></span>", unsafe_allow_html=True)
 has_image = img is not None
 
 # Persist results in session state so they survive re-runs (e.g. when clicking Download)
@@ -171,7 +178,6 @@ has_cached = cached is not None and cached.get("cache_key") == current_key
 
 if just_ran:
     st.session_state["prediction_result"] = None  # Clear before new run
-    st.markdown(f"**Using checkpoint:** `ckp/{ckp_subfolder_name}/{checkpoint}`")
     with st.spinner("Loading model and predicting..."):
         try:
             from predictor import S2FPredictor
@@ -325,5 +331,4 @@ elif run and not has_image:
 
 # Footer
 st.sidebar.divider()
-st.sidebar.caption(f"Checkpoint: `ckp/{ckp_subfolder_name}/`")
 st.sidebar.caption(f"Examples: `samples/{ckp_subfolder_name}/`")
