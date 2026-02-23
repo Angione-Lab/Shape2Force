@@ -20,13 +20,13 @@ if S2F_ROOT not in sys.path:
 
 from utils.substrate_settings import list_substrates
 
-st.set_page_config(page_title="Shape2Force (S2F)", page_icon="🔬", layout="centered")
+st.set_page_config(page_title="Shape2Force (S2F)", page_icon="🦠", layout="centered")
 st.markdown("""
     <style>
     section[data-testid="stSidebar"] { width: 380px !important; }
     </style>
     """, unsafe_allow_html=True)
-st.title("🔬 Shape2Force (S2F)")
+st.title("🦠 Shape2Force (S2F)")
 st.caption("Predict traction force maps from bright-field microscopy images of cells or spheroids")
 
 # Folders: checkpoints in subfolders by model type (single_cell / spheroid)
