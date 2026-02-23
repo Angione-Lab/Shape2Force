@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 st.title("🔬 Shape2Force (S2F)")
-st.caption("Predict force maps from bright field microscopy images")
+st.caption("Predict traction force maps from bright-field microscopy images of cells or spheroids")
 
 # Folders: checkpoints in subfolders by model type (single_cell / spheroid)
 ckp_base = os.path.join(S2F_ROOT, "ckp")
@@ -111,24 +111,17 @@ with st.sidebar:
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
 
-    st.divider()
-    st.subheader("Display")
-    display_size = st.slider("Image size (px)", min_value=200, max_value=800, value=350, step=50,
-                             help="Adjust display size. Drag to pan, scroll to zoom.")
-
-    st.divider()
-
 # Main area: image input
-img_source = st.radio("Image source", ["Upload", "Sample"], horizontal=True, label_visibility="collapsed")
+img_source = st.radio("Image source", ["Upload", "Example"], horizontal=True, label_visibility="collapsed")
 img = None
 uploaded = None
 selected_sample = None
 
 if img_source == "Upload":
     uploaded = st.file_uploader(
-        "Upload bright field image",
+        "Upload bright-field image",
         type=["tif", "tiff", "png", "jpg", "jpeg"],
-        help="Bright field microscopy image (grayscale or RGB)",
+        help="Bright-field microscopy image of a cell or spheroid on a substrate (grayscale or RGB). The model will predict traction forces from the cell shape.",
     )
     if uploaded:
         bytes_data = uploaded.read()
@@ -141,7 +134,7 @@ else:
     sample_subfolder_name = "single_cell" if model_type == "single_cell" else "spheroid"
     if sample_files:
         selected_sample = st.selectbox(
-            "Select sample image",
+            "Select example image",
             sample_files,
             format_func=lambda x: x,
             key=f"sample_{model_type}",
@@ -149,8 +142,8 @@ else:
         if selected_sample:
             sample_path = os.path.join(sample_folder, selected_sample)
             img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
-        # Show sample thumbnails (filtered by model type)
-        st.caption(f"Sample images from `samples/{sample_subfolder_name}/`")
+        # Show example thumbnails (filtered by model type)
+        st.caption(f"Example images from `samples/{sample_subfolder_name}/`")
         n_cols = min(5, len(sample_files))
         cols = st.columns(n_cols)
         for i, fname in enumerate(sample_files[:8]):  # show up to 8
@@ -160,12 +153,24 @@ else:
                 if sample_img is not None:
                     st.image(sample_img, caption=fname, width='content')
     else:
-        st.info(f"No sample images in samples/{sample_subfolder_name}/. Add images or use Upload.")
+        st.info(f"No example images in samples/{sample_subfolder_name}/. Add images or use Upload.")
 
 run = st.button("Run prediction", type="primary")
 has_image = img is not None
 
-if run and checkpoint and has_image:
+# Persist results in session state so they survive re-runs (e.g. when clicking Download)
+if "prediction_result" not in st.session_state:
+    st.session_state["prediction_result"] = None
+
+# Show results if we just ran prediction OR we have cached results from a previous run
+just_ran = run and checkpoint and has_image
+cached = st.session_state["prediction_result"]
+key_img = (uploaded.name if uploaded else None) if img_source == "Upload" else selected_sample
+current_key = (model_type, checkpoint, key_img)
+has_cached = cached is not None and cached.get("cache_key") == current_key
+
+if just_ran:
+    st.session_state["prediction_result"] = None  # Clear before new run
     st.markdown(f"**Using checkpoint:** `ckp/{ckp_subfolder_name}/{checkpoint}`")
     with st.spinner("Loading model and predicting..."):
         try:
@@ -185,23 +190,18 @@ if run and checkpoint and has_image:
 
                 st.success("Prediction complete!")
 
-                # Metrics
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Sum of all pixels", f"{pixel_sum:.2f}")
-                with col2:
-                    st.metric("Cell force (scaled)", f"{force:.2f}")
-                with col3:
-                    st.metric("Heatmap max", f"{np.max(heatmap):.4f}")
-                with col4:
-                    st.metric("Heatmap mean", f"{np.mean(heatmap):.4f}")
-
-                # Visualization - Plotly with zoom/pan
-                fig_pl = make_subplots(rows=1, cols=2, subplot_titles=["", ""])
+                # Visualization - Plotly with zoom/pan, annotated (titles in Streamlit to avoid clipping)
+                tit1, tit2 = st.columns(2)
+                with tit1:
+                    st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Input: Bright-field image</p>', unsafe_allow_html=True)
+                with tit2:
+                    st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Output: Predicted traction force map</p>', unsafe_allow_html=True)
+                fig_pl = make_subplots(rows=1, cols=2)
                 fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
-                fig_pl.add_trace(go.Heatmap(z=heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True), row=1, col=2)
+                fig_pl.add_trace(go.Heatmap(z=heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
+                    colorbar=dict(len=0.4, thickness=12)), row=1, col=2)
                 fig_pl.update_layout(
-                    height=display_size,
+                    height=400,
                     margin=dict(l=10, r=10, t=10, b=10),
                     xaxis=dict(scaleanchor="y", scaleratio=1),
                     xaxis2=dict(scaleanchor="y2", scaleratio=1),
@@ -209,6 +209,34 @@ if run and checkpoint and has_image:
                 fig_pl.update_xaxes(showticklabels=False)
                 fig_pl.update_yaxes(showticklabels=False, autorange="reversed")
                 st.plotly_chart(fig_pl, use_container_width=True)
+
+                # Metrics with help (below plot)
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
+                with col2:
+                    st.metric("Cell force (scaled)", f"{force:.2f}", help="Total traction force in physical units")
+                with col3:
+                    st.metric("Heatmap max", f"{np.max(heatmap):.4f}", help="Peak force intensity in the map")
+                with col4:
+                    st.metric("Heatmap mean", f"{np.mean(heatmap):.4f}", help="Average force intensity")
+
+                # How to read (below numbers)
+                with st.expander("ℹ️ How to read the results"):
+                    st.markdown("""
+**Input (left):** Bright-field microscopy image of a cell or spheroid on a substrate.  
+This is the raw image you provided—it shows cell shape but not forces.
+
+**Output (right):** Predicted traction force map.  
+- **Color** indicates force magnitude: blue = low, red = high  
+- **Brighter/warmer colors** = stronger forces exerted by the cell on the substrate  
+- Values are normalized to [0, 1] for visualization
+
+**Metrics:**
+- **Sum of all pixels:** Total force is the sum of all pixels in the force map. Each pixel represents the magnitude of force at that location; summing them gives the overall traction.
+- **Cell force (scaled):** Total traction force in physical units (scaled by substrate stiffness)
+- **Heatmap max/mean:** Peak and average force intensity in the map
+                    """)
 
                 # Download
                 heatmap_uint8 = (np.clip(heatmap, 0, 1) * 255).astype(np.uint8)
@@ -219,18 +247,83 @@ if run and checkpoint and has_image:
                 pil_heatmap.save(buf_hm, format="PNG")
                 buf_hm.seek(0)
                 st.download_button("Download Heatmap", data=buf_hm.getvalue(),
-                                   file_name="s2f_heatmap.png", mime="image/png")
+                                   file_name="s2f_heatmap.png", mime="image/png", key="download_heatmap")
+
+                # Store in session state so results persist when user clicks Download
+                cache_key = (model_type, checkpoint, key_img)
+                st.session_state["prediction_result"] = {
+                    "img": img.copy(),
+                    "heatmap": heatmap.copy(),
+                    "force": force,
+                    "pixel_sum": pixel_sum,
+                    "cache_key": cache_key,
+                }
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
             import traceback
             st.code(traceback.format_exc())
 
+elif has_cached:
+    # Show cached results (e.g. after clicking Download)
+    r = st.session_state["prediction_result"]
+    img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
+    st.success("Prediction complete!")
+    tit1, tit2 = st.columns(2)
+    with tit1:
+        st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Input: Bright-field image</p>', unsafe_allow_html=True)
+    with tit2:
+        st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Output: Predicted traction force map</p>', unsafe_allow_html=True)
+    fig_pl = make_subplots(rows=1, cols=2)
+    fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
+    fig_pl.add_trace(go.Heatmap(z=heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
+        colorbar=dict(len=0.4, thickness=12)), row=1, col=2)
+    fig_pl.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10),
+                         xaxis=dict(scaleanchor="y", scaleratio=1),
+                         xaxis2=dict(scaleanchor="y2", scaleratio=1))
+    fig_pl.update_xaxes(showticklabels=False)
+    fig_pl.update_yaxes(showticklabels=False, autorange="reversed")
+    st.plotly_chart(fig_pl, use_container_width=True)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
+    with col2:
+        st.metric("Cell force (scaled)", f"{force:.2f}", help="Total traction force in physical units")
+    with col3:
+        st.metric("Heatmap max", f"{np.max(heatmap):.4f}", help="Peak force intensity in the map")
+    with col4:
+        st.metric("Heatmap mean", f"{np.mean(heatmap):.4f}", help="Average force intensity")
+    with st.expander("ℹ️ How to read the results"):
+        st.markdown("""
+**Input (left):** Bright-field microscopy image of a cell or spheroid on a substrate.  
+This is the raw image you provided—it shows cell shape but not forces.
+
+**Output (right):** Predicted traction force map.  
+- **Color** indicates force magnitude: blue = low, red = high  
+- **Brighter/warmer colors** = stronger forces exerted by the cell on the substrate  
+- Values are normalized to [0, 1] for visualization
+
+**Metrics:**
+- **Sum of all pixels:** Total force is the sum of all pixels in the force map. Each pixel represents the magnitude of force at that location; summing them gives the overall traction.
+- **Cell force (scaled):** Total traction force in physical units (scaled by substrate stiffness)
+- **Heatmap max/mean:** Peak and average force intensity in the map
+        """)
+    heatmap_uint8 = (np.clip(heatmap, 0, 1) * 255).astype(np.uint8)
+    heatmap_rgb = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
+    heatmap_rgb = cv2.cvtColor(heatmap_rgb, cv2.COLOR_BGR2RGB)
+    pil_heatmap = Image.fromarray(heatmap_rgb)
+    buf_hm = io.BytesIO()
+    pil_heatmap.save(buf_hm, format="PNG")
+    buf_hm.seek(0)
+    st.download_button("Download Heatmap", data=buf_hm.getvalue(),
+                       file_name="s2f_heatmap.png", mime="image/png", key="download_cached")
+
 elif run and not checkpoint:
     st.warning("Please add checkpoint files to the ckp/ folder and select one.")
 elif run and not has_image:
-    st.warning("Please upload an image or select a sample.")
+    st.warning("Please upload an image or select an example.")
 
 # Footer
 st.sidebar.divider()
-st.sidebar.caption("Checkpoints: ckp/single_cell/ and ckp/spheroid/. Samples: samples/single_cell/ and samples/spheroid/")
+st.sidebar.caption(f"Checkpoint: `ckp/{ckp_subfolder_name}/`")
+st.sidebar.caption(f"Examples: `samples/{ckp_subfolder_name}/`")
