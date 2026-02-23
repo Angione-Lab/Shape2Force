@@ -89,31 +89,44 @@ class S2FPredictor:
         """
         self.model_type = model_type
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        ckp_folder = ckp_folder or os.path.join(S2F_ROOT, "ckp")
+        ckp_base = os.path.join(S2F_ROOT, "ckp")
+        if not os.path.isdir(ckp_base):
+            project_root = os.path.dirname(S2F_ROOT)
+            if os.path.isdir(os.path.join(project_root, "ckp")):
+                ckp_base = os.path.join(project_root, "ckp")
+        subfolder = "single_cell" if model_type == "single_cell" else "spheroid"
+        ckp_dir = ckp_folder if ckp_folder else os.path.join(ckp_base, subfolder)
+        if not os.path.isdir(ckp_dir):
+            ckp_dir = ckp_base  # fallback if subfolders not used
 
         in_channels = 3 if model_type == "single_cell" else 1
-        generator, _ = create_s2f_model(in_channels=in_channels)
+        s2f_model_type = "s2f" if model_type == "single_cell" else "s2f_spheroid"
+        generator, _ = create_s2f_model(in_channels=in_channels, model_type=s2f_model_type)
         self.generator = generator
 
         if checkpoint_path:
             full_path = checkpoint_path
             if not os.path.isabs(checkpoint_path):
-                full_path = os.path.join(ckp_folder, checkpoint_path)
+                full_path = os.path.join(ckp_dir, checkpoint_path)
+            if not os.path.exists(full_path):
+                full_path = os.path.join(ckp_base, checkpoint_path)  # try base folder
             if not os.path.exists(full_path):
                 raise FileNotFoundError(f"Checkpoint not found: {full_path}")
 
-            # Single-cell: use load_checkpoint_with_expansion (handles 1ch->3ch if needed)
             if model_type == "single_cell":
                 self.generator.load_checkpoint_with_expansion(full_path, strict=True)
             else:
                 checkpoint = torch.load(full_path, map_location="cpu", weights_only=False)
-                state = checkpoint.get("generator_state_dict", checkpoint)
+                state = checkpoint.get("generator_state_dict") or checkpoint.get("model_state_dict") or checkpoint
                 self.generator.load_state_dict(state, strict=True)
+                if hasattr(self.generator, "set_output_mode"):
+                    self.generator.set_output_mode(use_tanh=False)  # sigmoid [0,1] for inference
 
         self.generator = self.generator.to(self.device)
         self.generator.eval()
 
         self.norm_params = compute_settings_normalization() if model_type == "single_cell" else None
+        self._use_tanh_output = model_type == "single_cell"  # single_cell uses tanh, spheroid uses sigmoid
         self.config_path = os.path.join(S2F_ROOT, "config", "substrate_settings.json")
 
     def predict(self, image_path=None, image_array=None, substrate="fibroblasts_PDMS",
@@ -156,7 +169,9 @@ class S2FPredictor:
         with torch.no_grad():
             pred = self.generator(x)
 
-        pred = (pred + 1.0) / 2.0  # Tanh to [0, 1]
+        if self._use_tanh_output:
+            pred = (pred + 1.0) / 2.0  # Tanh [-1,1] to [0, 1]
+        # else: spheroid already outputs sigmoid [0, 1]
         heatmap = pred[0, 0].cpu().numpy()
         force = sum_force_map(pred).item()
         pixel_sum = float(np.sum(heatmap))
