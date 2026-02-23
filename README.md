@@ -2,6 +2,12 @@
 
 Predict force maps from bright-field microscopy images of single-cell or spheroid. 
 
+If you find this software useful, please cite:
+
+Lautaro Baro#, Kaveh Shahhosseini#, Amparo Andrés-Bordería, Claudio Angione*, and Maria Angeles Juanes*. **"Shape-to-force (S2F): Predicting Cell Traction Forces from LabelFree Imaging"**, 2026.
+
+
+
 ---
 
 ## Ways to Use S2F
