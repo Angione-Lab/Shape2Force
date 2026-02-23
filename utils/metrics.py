@@ -352,7 +352,6 @@ def print_metrics_report(report, threshold=0.0, uses_tanh=False):
         print(f" MSE:             {metrics['heatmap']['mse']:.6f} ± {metrics['heatmap']['mse_std']:.6f}")
         print(f" MS-SSIM:         {metrics['heatmap']['ms_ssim']:.4f} ± {metrics['heatmap']['ms_ssim_std']:.4f}")
         print(f" Pixel Corr:      {metrics['heatmap']['pixel_correlation']:.4f} ± {metrics['heatmap']['pixel_correlation_std']:.4f}")
-        print("WFM METRICS (heatmap as magnitude):")
         print(f" Correlation (Magnitude): {metrics['wfm']['correlation_magnitude']:.4f} ± {metrics['wfm']['correlation_magnitude_std']:.4f}")
         print(f" Relative Magnitude Error: {metrics['wfm']['relative_magnitude_error']:.4f} ± {metrics['wfm']['relative_magnitude_error_std']:.4f}")
         print("FORCE SUM CORRELATION:")
