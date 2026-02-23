@@ -186,3 +186,33 @@ def load_folder_data(folder_path, substrate=None, img_size=1024, blur_heatmap=Fa
                                threshold=threshold, return_metadata=return_metadata)
     val_dataset.name = os.path.basename(folder_path)
     return DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+
+def collect_image_paths(folder_path, exts=None):
+    if exts is None:
+        exts = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
+    paths = []
+    for root, _, files in os.walk(os.path.normpath(folder_path)):
+        for f in files:
+            if os.path.splitext(f)[1].lower() in exts:
+                paths.append(os.path.join(root, f))
+    return sorted(paths)
+
+
+class BrightfieldOnlyDataset(Dataset):
+    """Dataset of brightfield images only (no labels), for inference."""
+    def __init__(self, folder_path, target_size=1024):
+        self.paths = collect_image_paths(folder_path)
+        self.target_size = (target_size, target_size) if isinstance(target_size, int) else target_size
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, i):
+        x = load_image(self.paths[i], self.target_size)
+        return torch.from_numpy(x).float().unsqueeze(0)
+
+
+def load_brightfield_loader(folder_path, img_size=1024, batch_size=2):
+    ds = BrightfieldOnlyDataset(folder_path, target_size=img_size)
+    return DataLoader(ds, batch_size=batch_size, shuffle=False)
