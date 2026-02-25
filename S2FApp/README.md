@@ -1,5 +1,6 @@
 ---
 title: Shape2Force
+short_description: Predict traction force maps from bright-field microscopy images of cells or spheroids
 emoji: 🦠
 colorFrom: indigo
 colorTo: blue
