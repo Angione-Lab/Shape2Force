@@ -1,3 +1,14 @@
+---
+tags:
+  - biology
+  - microscopy
+  - traction-force
+  - pytorch
+  - pix2pix
+  - gan
+license: mit
+---
+
 # Shape2Force (S2F)
 
 Predict force maps from bright-field microscopy images of single-cell or spheroid. 
