@@ -1,7 +1,6 @@
 ---
 title: Shape2Force
-short_description: Predict traction force maps from bright-field microscopy images of cells or spheroids
-emoji: 🦠
+short_description: Force map prediction from bright-field cell images
 colorFrom: indigo
 colorTo: blue
 tags:
