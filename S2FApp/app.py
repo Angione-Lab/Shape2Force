@@ -332,3 +332,8 @@ elif run and not has_image:
 # Footer
 st.sidebar.divider()
 st.sidebar.caption(f"Examples: `samples/{ckp_subfolder_name}/`")
+st.sidebar.caption("If you find this software useful, please cite:")
+st.sidebar.caption(
+    "Lautaro Baro, Kaveh Shahhosseini, Amparo Andrés-Bordería, Claudio Angione, and Maria Angeles Juanes. "
+    "**\"Shape-to-force (S2F): Predicting Cell Traction Forces from LabelFree Imaging\"**, 2026."
+)
