@@ -1,6 +1,7 @@
 ---
 title: Shape2Force
 short_description: Force map prediction from bright-field cell images
+emoji: 🦠
 colorFrom: indigo
 colorTo: blue
 tags:
