@@ -11,7 +11,7 @@ if not has_any:
     try:
         from huggingface_hub import hf_hub_download, list_repo_files
 
-        repo = os.environ.get("HF_MODEL_REPO", "kaveh/Shape2Force")
+        repo = os.environ.get("HF_MODEL_REPO", "Angione-Lab/Shape2Force")
         files = list_repo_files(repo)
         pth_files = [f for f in files if f.startswith("ckp/") and f.endswith(".pth")]
         # For spheroid: only download ckp_spheroid_FN.pth (not ckp_spheroid_GN.pth or others)

@@ -24,7 +24,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Checkpoints are downloaded automatically from the [Shape2Force model repo](https://huggingface.co/kaveh/Shape2Force) when running in Docker. For local use, place `.pth` files in `ckp/`.
+Checkpoints are downloaded automatically from the [Shape2Force model repo](https://huggingface.co/Angione-Lab/Shape2Force) when running in Docker. For local use, place `.pth` files in `ckp/`.
 
 ## Usage
 

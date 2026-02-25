@@ -31,7 +31,7 @@ streamlit run app.py
 ---
 ### 2. Web App Online
 
-Use the [online app](https://huggingface.co/spaces/kaveh/Shape2force) on Hugging Face. 
+Use the [online app](https://huggingface.co/spaces/Angione-Lab/Shape2force) on Hugging Face. 
 
 <p align="center">
   <img src="./S2FApp/res/ss.png" width="450" alt="Shape2Force Web App" />
