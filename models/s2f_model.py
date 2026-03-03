@@ -174,7 +174,6 @@ class AttentionGate(nn.Module):
             psi = F.interpolate(psi, size=x.shape[2:], mode='bilinear', align_corners=False)
         return x * psi
 
-
 class SpheroidAttentionGate(nn.Module):
     """Attention Gate from ForceNet2WithAttention (s2f_spheroid). Checkpoint-compatible for ckp_spheroid_FN.pth."""
     def __init__(self, F_g, F_l, F_int):
@@ -237,7 +236,6 @@ class PatchGANDiscriminator(nn.Module):
             x = layer(x)
         x = x * self.attention(x)
         return self.output_conv(x)
-
 
 class S2FGenerator(nn.Module):
     """

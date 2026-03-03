@@ -111,6 +111,18 @@ with st.sidebar:
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
 
+    st.divider()
+    st.header("Display options")
+    force_scale = st.slider(
+        "Force scale",
+        min_value=0.0,
+        max_value=1.0,
+        value=1.0,
+        step=0.01,
+        format="%.2f",
+        help="Scale the displayed force values. 1 = full intensity, 0.5 = half the pixel values.",
+    )
+
 # Main area: image input
 img_source = st.radio("Image source", ["Upload", "Example"], horizontal=True, label_visibility="collapsed")
 img = None
@@ -196,6 +208,9 @@ if just_ran:
 
                 st.success("Prediction complete!")
 
+                # Apply force scale to displayed heatmap
+                scaled_heatmap = heatmap * force_scale
+
                 # Visualization - Plotly with zoom/pan, annotated (titles in Streamlit to avoid clipping)
                 tit1, tit2 = st.columns(2)
                 with tit1:
@@ -204,7 +219,7 @@ if just_ran:
                     st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Output: Predicted traction force map</p>', unsafe_allow_html=True)
                 fig_pl = make_subplots(rows=1, cols=2)
                 fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
-                fig_pl.add_trace(go.Heatmap(z=heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
+                fig_pl.add_trace(go.Heatmap(z=scaled_heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
                     colorbar=dict(len=0.4, thickness=12)), row=1, col=2)
                 fig_pl.update_layout(
                     height=400,
@@ -216,16 +231,16 @@ if just_ran:
                 fig_pl.update_yaxes(showticklabels=False, autorange="reversed")
                 st.plotly_chart(fig_pl, use_container_width=True)
 
-                # Metrics with help (below plot)
+                # Metrics with help (below plot) - use scaled values
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
+                    st.metric("Sum of all pixels", f"{pixel_sum * force_scale:.2f}", help="Raw sum of all pixel values in the force map")
                 with col2:
-                    st.metric("Cell force (scaled)", f"{force:.2f}", help="Total traction force in physical units")
+                    st.metric("Cell force (scaled)", f"{force * force_scale:.2f}", help="Total traction force in physical units")
                 with col3:
-                    st.metric("Heatmap max", f"{np.max(heatmap):.4f}", help="Peak force intensity in the map")
+                    st.metric("Heatmap max", f"{np.max(scaled_heatmap):.4f}", help="Peak force intensity in the map")
                 with col4:
-                    st.metric("Heatmap mean", f"{np.mean(heatmap):.4f}", help="Average force intensity")
+                    st.metric("Heatmap mean", f"{np.mean(scaled_heatmap):.4f}", help="Average force intensity")
 
                 # How to read (below numbers)
                 with st.expander("ℹ️ How to read the results"):
@@ -244,8 +259,8 @@ This is the raw image you provided—it shows cell shape but not forces.
 - **Heatmap max/mean:** Peak and average force intensity in the map
                     """)
 
-                # Download
-                heatmap_uint8 = (np.clip(heatmap, 0, 1) * 255).astype(np.uint8)
+                # Download (scaled heatmap)
+                heatmap_uint8 = (np.clip(scaled_heatmap, 0, 1) * 255).astype(np.uint8)
                 heatmap_rgb = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
                 heatmap_rgb = cv2.cvtColor(heatmap_rgb, cv2.COLOR_BGR2RGB)
                 pil_heatmap = Image.fromarray(heatmap_rgb)
@@ -274,6 +289,7 @@ elif has_cached:
     # Show cached results (e.g. after clicking Download)
     r = st.session_state["prediction_result"]
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
+    scaled_heatmap = heatmap * force_scale
     st.success("Prediction complete!")
     tit1, tit2 = st.columns(2)
     with tit1:
@@ -282,7 +298,7 @@ elif has_cached:
         st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Output: Predicted traction force map</p>', unsafe_allow_html=True)
     fig_pl = make_subplots(rows=1, cols=2)
     fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
-    fig_pl.add_trace(go.Heatmap(z=heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
+    fig_pl.add_trace(go.Heatmap(z=scaled_heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
         colorbar=dict(len=0.4, thickness=12)), row=1, col=2)
     fig_pl.update_layout(height=400, margin=dict(l=10, r=10, t=10, b=10),
                          xaxis=dict(scaleanchor="y", scaleratio=1),
@@ -292,13 +308,13 @@ elif has_cached:
     st.plotly_chart(fig_pl, use_container_width=True)
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
+        st.metric("Sum of all pixels", f"{pixel_sum * force_scale:.2f}", help="Raw sum of all pixel values in the force map")
     with col2:
-        st.metric("Cell force (scaled)", f"{force:.2f}", help="Total traction force in physical units")
+        st.metric("Cell force (scaled)", f"{force * force_scale:.2f}", help="Total traction force in physical units")
     with col3:
-        st.metric("Heatmap max", f"{np.max(heatmap):.4f}", help="Peak force intensity in the map")
+        st.metric("Heatmap max", f"{np.max(scaled_heatmap):.4f}", help="Peak force intensity in the map")
     with col4:
-        st.metric("Heatmap mean", f"{np.mean(heatmap):.4f}", help="Average force intensity")
+        st.metric("Heatmap mean", f"{np.mean(scaled_heatmap):.4f}", help="Average force intensity")
     with st.expander("ℹ️ How to read the results"):
         st.markdown("""
 **Input (left):** Bright-field microscopy image of a cell or spheroid on a substrate.  
@@ -314,7 +330,7 @@ This is the raw image you provided—it shows cell shape but not forces.
 - **Cell force (scaled):** Total traction force in physical units (scaled by substrate stiffness)
 - **Heatmap max/mean:** Peak and average force intensity in the map
         """)
-    heatmap_uint8 = (np.clip(heatmap, 0, 1) * 255).astype(np.uint8)
+    heatmap_uint8 = (np.clip(scaled_heatmap, 0, 1) * 255).astype(np.uint8)
     heatmap_rgb = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
     heatmap_rgb = cv2.cvtColor(heatmap_rgb, cv2.COLOR_BGR2RGB)
     pil_heatmap = Image.fromarray(heatmap_rgb)
