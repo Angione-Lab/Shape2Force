@@ -34,6 +34,29 @@ DRAW_TOOLS = ["polygon", "rect", "circle"]
 TOOL_LABELS = {"polygon": "Polygon", "rect": "Rectangle", "circle": "Circle"}
 CANVAS_SIZE = 320
 SAMPLE_EXTENSIONS = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
+COLORMAPS = {
+    "Jet": cv2.COLORMAP_JET,
+    "Viridis": cv2.COLORMAP_VIRIDIS,
+    "Plasma": cv2.COLORMAP_PLASMA,
+    "Inferno": cv2.COLORMAP_INFERNO,
+    "Magma": cv2.COLORMAP_MAGMA,
+}
+
+
+def _cv_colormap_to_plotly_colorscale(colormap_name, n_samples=64):
+    """Build a Plotly colorscale from OpenCV colormap so UI matches download/PDF exactly."""
+    cv2_cmap = COLORMAPS.get(colormap_name, cv2.COLORMAP_JET)
+    gradient = np.linspace(0, 255, n_samples, dtype=np.uint8).reshape(1, -1)
+    rgb = cv2.applyColorMap(gradient, cv2_cmap)
+    rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+    # Plotly colorscale: [[position 0..1, 'rgb(r,g,b)'], ...]
+    scale = []
+    for i in range(n_samples):
+        r, g, b = rgb[0, i]
+        scale.append([i / (n_samples - 1), f"rgb({r},{g},{b})"])
+    return scale
+
+
 CITATION = (
     "Lautaro Baro, Kaveh Shahhosseini, Amparo Andrés-Bordería, Claudio Angione, and Maria Angeles Juanes. "
     "**\"Shape-to-force (S2F): Predicting Cell Traction Forces from LabelFree Imaging\"**, 2026."
@@ -129,15 +152,77 @@ def _parse_canvas_shapes_to_mask(json_data, canvas_h, canvas_w, heatmap_h, heatm
     return mask, count
 
 
-def _heatmap_to_png_bytes(scaled_heatmap):
-    """Convert scaled heatmap (float 0-1) to PNG bytes buffer."""
+def _heatmap_to_rgb(scaled_heatmap, colormap_name="Jet"):
+    """Convert scaled heatmap (float 0-1) to RGB array using the given colormap."""
     heatmap_uint8 = (np.clip(scaled_heatmap, 0, 1) * 255).astype(np.uint8)
-    heatmap_rgb = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-    heatmap_rgb = cv2.cvtColor(heatmap_rgb, cv2.COLOR_BGR2RGB)
+    cv2_colormap = COLORMAPS.get(colormap_name, cv2.COLORMAP_JET)
+    heatmap_rgb = cv2.cvtColor(cv2.applyColorMap(heatmap_uint8, cv2_colormap), cv2.COLOR_BGR2RGB)
+    return heatmap_rgb
+
+
+def _heatmap_to_png_bytes(scaled_heatmap, colormap_name="Jet"):
+    """Convert scaled heatmap (float 0-1) to PNG bytes buffer."""
+    heatmap_rgb = _heatmap_to_rgb(scaled_heatmap, colormap_name)
     buf = io.BytesIO()
     Image.fromarray(heatmap_rgb).save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+def _create_pdf_report(img, scaled_heatmap, pixel_sum, force, force_scale, base_name, colormap_name="Jet"):
+    """Create a PDF report with input image, heatmap, and metrics."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import inch
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+    img_w, img_h = 2.5 * inch, 2.5 * inch
+
+    # Images first (drawn lower so title can go on top)
+    img_top = h - 70
+    img_pil = Image.fromarray(img) if img.ndim == 2 else Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    img_buf = io.BytesIO()
+    img_pil.save(img_buf, format="PNG")
+    img_buf.seek(0)
+    c.drawImage(ImageReader(img_buf), 72, img_top - img_h, width=img_w, height=img_h, preserveAspectRatio=True)
+    c.setFont("Helvetica", 9)
+    c.drawString(72, img_top - img_h - 12, "Input: Bright-field")
+
+    heatmap_rgb = _heatmap_to_rgb(scaled_heatmap, colormap_name)
+    hm_buf = io.BytesIO()
+    Image.fromarray(heatmap_rgb).save(hm_buf, format="PNG")
+    hm_buf.seek(0)
+    c.drawImage(ImageReader(hm_buf), 72 + img_w + 20, img_top - img_h, width=img_w, height=img_h, preserveAspectRatio=True)
+    c.drawString(72 + img_w + 20, img_top - img_h - 12, "Output: Force map")
+
+    # Title above images
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(72, img_top + 25, "Shape2Force (S2F) - Prediction Report")
+    c.setFont("Helvetica", 10)
+    c.drawString(72, img_top + 8, f"Image: {base_name}")
+
+    # Metrics table below images
+    y = img_top - img_h - 45
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(72, y, "Metrics")
+    c.setFont("Helvetica", 9)
+    y -= 18
+    metrics = [
+        ("Sum of all pixels", f"{pixel_sum * force_scale:.2f}"),
+        ("Cell force (scaled)", f"{force * force_scale:.2f}"),
+        ("Heatmap max", f"{np.max(scaled_heatmap):.4f}"),
+        ("Heatmap mean", f"{np.mean(scaled_heatmap):.4f}"),
+    ]
+    for label, val in metrics:
+        c.drawString(72, y, f"{label}: {val}")
+        y -= 16
+
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
 
 
 def _build_original_vals(scaled_heatmap, pixel_sum, force, force_scale):
@@ -150,9 +235,9 @@ def _build_original_vals(scaled_heatmap, pixel_sum, force, force_scale):
     }
 
 
-def _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, key_img, download_key_suffix=""):
+def _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, key_img, download_key_suffix="", colormap_name="Jet"):
     """Render prediction result: plot, metrics, expander, and download/measure buttons."""
-    buf_hm = _heatmap_to_png_bytes(scaled_heatmap)
+    buf_hm = _heatmap_to_png_bytes(scaled_heatmap, colormap_name)
     base_name = os.path.splitext(key_img or "image")[0]
     main_csv_rows = [
         ["image", "Sum of all pixels", "Cell force (scaled)", "Heatmap max", "Heatmap mean"],
@@ -169,7 +254,8 @@ def _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, k
         st.markdown('<p style="font-size: 1.1rem; color: black; font-weight: 600;">Output: Predicted traction force map</p>', unsafe_allow_html=True)
     fig_pl = make_subplots(rows=1, cols=2)
     fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
-    fig_pl.add_trace(go.Heatmap(z=scaled_heatmap, colorscale="Jet", zmin=0, zmax=1, showscale=True,
+    plotly_colorscale = _cv_colormap_to_plotly_colorscale(colormap_name)
+    fig_pl.add_trace(go.Heatmap(z=scaled_heatmap, colorscale=plotly_colorscale, zmin=0, zmax=1, showscale=True,
         colorbar=dict(len=0.4, thickness=12)), row=1, col=2)
     fig_pl.update_layout(
         height=400,
@@ -208,7 +294,8 @@ This is the raw image you provided—it shows cell shape but not forces.
         """)
 
     original_vals = _build_original_vals(scaled_heatmap, pixel_sum, force, force_scale)
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    pdf_bytes = _create_pdf_report(img, scaled_heatmap, pixel_sum, force, force_scale, base_name, colormap_name)
+    btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
     with btn_col1:
         if HAS_DRAWABLE_CANVAS and st_dialog:
             if st.button("Measure tool", key="open_measure", icon=":material/straighten:"):
@@ -222,6 +309,7 @@ This is the raw image you provided—it shows cell shape but not forces.
                     original_vals=original_vals,
                     key_suffix="expander",
                     input_filename=key_img,
+                    colormap_name=colormap_name,
                 )
         else:
             st.caption("Install `streamlit-drawable-canvas-fix` for region measurement: `pip install streamlit-drawable-canvas-fix`")
@@ -244,6 +332,16 @@ This is the raw image you provided—it shows cell shape but not forces.
             mime="text/csv",
             key=f"download_main_values{download_key_suffix}",
             icon=":material/download:",
+        )
+    with btn_col4:
+        st.download_button(
+            "Download report",
+            width="stretch",
+            data=pdf_bytes,
+            file_name=f"{base_name}_report.pdf",
+            mime="application/pdf",
+            key=f"download_pdf{download_key_suffix}",
+            icon=":material/picture_as_pdf:",
         )
 
 
@@ -322,11 +420,10 @@ def _render_region_metrics_and_downloads(metrics, heatmap_rgb, mask, input_filen
             key=f"download_annotated_{key_suffix}", icon=":material/image:")
 
 
-def _render_region_canvas(scaled_heatmap, bf_img=None, original_vals=None, key_suffix="", input_filename=None):
+def _render_region_canvas(scaled_heatmap, bf_img=None, original_vals=None, key_suffix="", input_filename=None, colormap_name="Jet"):
     """Render drawable canvas and region metrics. Used in dialog or expander."""
     h, w = scaled_heatmap.shape
-    heatmap_display = (np.clip(scaled_heatmap, 0, 1) * 255).astype(np.uint8)
-    heatmap_rgb = cv2.cvtColor(cv2.applyColorMap(heatmap_display, cv2.COLORMAP_JET), cv2.COLOR_BGR2RGB)
+    heatmap_rgb = _heatmap_to_rgb(scaled_heatmap, colormap_name)
     pil_bg = Image.fromarray(heatmap_rgb).resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.LANCZOS)
 
     st.markdown("""
@@ -404,7 +501,8 @@ if HAS_DRAWABLE_CANVAS and st_dialog:
         bf_img = st.session_state.get("measure_bf_img")
         original_vals = st.session_state.get("measure_original_vals")
         input_filename = st.session_state.get("measure_input_filename", "image")
-        _render_region_canvas(scaled_heatmap, bf_img=bf_img, original_vals=original_vals, key_suffix="dialog", input_filename=input_filename)
+        colormap_name = st.session_state.get("measure_colormap", "Jet")
+        _render_region_canvas(scaled_heatmap, bf_img=bf_img, original_vals=original_vals, key_suffix="dialog", input_filename=input_filename, colormap_name=colormap_name)
 else:
     def measure_region_dialog():
         pass  # no-op when canvas or dialog not available
@@ -519,6 +617,11 @@ with st.sidebar:
         format="%.2f",
         help="Scale the displayed force values. 1 = full intensity, 0.5 = half the pixel values.",
     )
+    colormap_name = st.selectbox(
+        "Heatmap colormap",
+        list(COLORMAPS.keys()),
+        help="Color scheme for the force map. Viridis is often preferred for accessibility.",
+    )
 
 # Main area: image input
 img_source = st.radio("Image source", ["Upload", "Example"], horizontal=True, label_visibility="collapsed")
@@ -594,33 +697,32 @@ if just_ran:
                 checkpoint_path=checkpoint,
                 ckp_folder=ckp_folder,
             )
-            if img is not None:
-                sub_val = substrate_val if model_type == "single_cell" and not use_manual else "fibroblasts_PDMS"
-                heatmap, force, pixel_sum = predictor.predict(
-                    image_array=img,
-                    substrate=sub_val,
-                    substrate_config=substrate_config if model_type == "single_cell" else None,
-                )
+            sub_val = substrate_val if model_type == "single_cell" and not use_manual else "fibroblasts_PDMS"
+            heatmap, force, pixel_sum = predictor.predict(
+                image_array=img,
+                substrate=sub_val,
+                substrate_config=substrate_config if model_type == "single_cell" else None,
+            )
 
-                st.success("Prediction complete!")
+            st.success("Prediction complete!")
 
-                scaled_heatmap = heatmap * force_scale
+            scaled_heatmap = heatmap * force_scale
 
-                # Store result and measure data before rendering (Measure click survives rerun)
-                cache_key = (model_type, checkpoint, key_img)
-                st.session_state["prediction_result"] = {
-                    "img": img.copy(),
-                    "heatmap": heatmap.copy(),
-                    "force": force,
-                    "pixel_sum": pixel_sum,
-                    "cache_key": cache_key,
-                }
-                st.session_state["measure_scaled_heatmap"] = scaled_heatmap.copy()
-                st.session_state["measure_bf_img"] = img.copy()
-                st.session_state["measure_input_filename"] = key_img or "image"
-                st.session_state["measure_original_vals"] = _build_original_vals(scaled_heatmap, pixel_sum, force, force_scale)
+            cache_key = (model_type, checkpoint, key_img)
+            st.session_state["prediction_result"] = {
+                "img": img.copy(),
+                "heatmap": heatmap.copy(),
+                "force": force,
+                "pixel_sum": pixel_sum,
+                "cache_key": cache_key,
+            }
+            st.session_state["measure_scaled_heatmap"] = scaled_heatmap.copy()
+            st.session_state["measure_bf_img"] = img.copy()
+            st.session_state["measure_input_filename"] = key_img or "image"
+            st.session_state["measure_original_vals"] = _build_original_vals(scaled_heatmap, pixel_sum, force, force_scale)
+            st.session_state["measure_colormap"] = colormap_name
 
-                _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, key_img)
+            _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, key_img, colormap_name=colormap_name)
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
@@ -635,12 +737,13 @@ elif has_cached:
     st.session_state["measure_bf_img"] = img.copy()
     st.session_state["measure_input_filename"] = key_img or "image"
     st.session_state["measure_original_vals"] = _build_original_vals(scaled_heatmap, pixel_sum, force, force_scale)
+    st.session_state["measure_colormap"] = colormap_name
 
     if st.session_state.pop("open_measure_dialog", False):
         measure_region_dialog()
 
     st.success("Prediction complete!")
-    _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, key_img, download_key_suffix="_cached")
+    _render_result_display(img, scaled_heatmap, pixel_sum, force, force_scale, key_img, download_key_suffix="_cached", colormap_name=colormap_name)
 
 elif run and not checkpoint:
     st.warning("Please add checkpoint files to the ckp/ folder and select one.")
