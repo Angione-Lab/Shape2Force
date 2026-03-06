@@ -17,7 +17,7 @@ from config.constants import (
     TOOL_LABELS,
 )
 from utils.display import apply_display_scale, cv_colormap_to_plotly_colorscale
-from utils.report import heatmap_to_rgb, heatmap_to_png_bytes, create_pdf_report
+from utils.report import heatmap_to_rgb, heatmap_to_rgb_with_contour, heatmap_to_png_bytes, create_pdf_report
 from utils.segmentation import estimate_cell_mask
 
 try:
@@ -100,17 +100,6 @@ def _obj_to_pts(obj, scale_x, scale_y, heatmap_w, heatmap_h):
     pts[:, 1] *= scale_y
     pts = np.clip(pts, 0, [heatmap_w - 1, heatmap_h - 1]).astype(np.int32)
     return pts
-
-
-def parse_canvas_shapes_to_mask(json_data, canvas_h, canvas_w, heatmap_h, heatmap_w):
-    """Parse drawn shapes from streamlit-drawable-canvas json_data and create binary mask (combined)."""
-    masks, _ = parse_canvas_shapes_to_masks(json_data, canvas_h, canvas_w, heatmap_h, heatmap_w)
-    if not masks:
-        return None, 0
-    combined = np.zeros((heatmap_h, heatmap_w), dtype=np.uint8)
-    for m in masks:
-        combined = np.maximum(combined, m)
-    return combined, len(masks)
 
 
 def parse_canvas_shapes_to_masks(json_data, canvas_h, canvas_w, heatmap_h, heatmap_w):
@@ -237,9 +226,7 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
     """Render drawable canvas and region metrics. When cell_vals: show cell area (replaces Full map). Else: show Full map."""
     raw_heatmap = raw_heatmap if raw_heatmap is not None else display_heatmap
     h, w = display_heatmap.shape
-    heatmap_rgb = heatmap_to_rgb(display_heatmap, colormap_name)
-    if cell_mask is not None and np.any(cell_mask > 0):
-        heatmap_rgb = _draw_contour_on_image(heatmap_rgb.copy(), cell_mask, stroke_color=(255, 0, 0), stroke_width=2)
+    heatmap_rgb = heatmap_to_rgb_with_contour(display_heatmap, colormap_name, cell_mask)
     pil_bg = Image.fromarray(heatmap_rgb).resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.LANCZOS)
 
     st.markdown("""

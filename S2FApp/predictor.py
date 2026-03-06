@@ -14,6 +14,7 @@ if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
 from models.s2f_model import create_s2f_model
+from utils.paths import get_ckp_base, model_subfolder
 from utils.substrate_settings import get_settings_of_category, compute_settings_normalization
 from utils import config
 
@@ -89,12 +90,8 @@ class S2FPredictor:
         """
         self.model_type = model_type
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        ckp_base = os.path.join(S2F_ROOT, "ckp")
-        if not os.path.isdir(ckp_base):
-            project_root = os.path.dirname(S2F_ROOT)
-            if os.path.isdir(os.path.join(project_root, "ckp")):
-                ckp_base = os.path.join(project_root, "ckp")
-        subfolder = "single_cell" if model_type == "single_cell" else "spheroid"
+        ckp_base = get_ckp_base(S2F_ROOT)
+        subfolder = model_subfolder(model_type)
         ckp_dir = ckp_folder if ckp_folder else os.path.join(ckp_base, subfolder)
         if not os.path.isdir(ckp_dir):
             ckp_dir = ckp_base  # fallback if subfolders not used

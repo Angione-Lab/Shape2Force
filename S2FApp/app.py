@@ -20,6 +20,7 @@ from config.constants import (
     MODEL_TYPE_LABELS,
     SAMPLE_EXTENSIONS,
 )
+from utils.paths import get_ckp_base, model_subfolder
 from utils.segmentation import estimate_cell_mask
 from utils.substrate_settings import list_substrates
 from utils.display import apply_display_scale
@@ -31,11 +32,6 @@ from ui.components import (
     ST_DIALOG,
     HAS_DRAWABLE_CANVAS,
 )
-
-try:
-    from streamlit_drawable_canvas import st_canvas
-except (ImportError, AttributeError):
-    pass  # HAS_DRAWABLE_CANVAS from ui.components
 
 CITATION = (
     "Lautaro Baro, Kaveh Shahhosseini, Amparo Andrés-Bordería, Claudio Angione, and Maria Angeles Juanes. "
@@ -71,6 +67,21 @@ else:
 def _get_measure_dialog_fn():
     """Return measure dialog callable if available, else None (fixes st_dialog ordering)."""
     return measure_region_dialog if (HAS_DRAWABLE_CANVAS and ST_DIALOG) else None
+
+
+def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, colormap_name,
+                                    display_mode, auto_cell_boundary):
+    """Populate session state for the measure tool."""
+    cell_mask = estimate_cell_mask(heatmap)
+    st.session_state["measure_raw_heatmap"] = heatmap.copy()
+    st.session_state["measure_display_mode"] = display_mode
+    st.session_state["measure_bf_img"] = img.copy()
+    st.session_state["measure_input_filename"] = key_img or "image"
+    st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force)
+    st.session_state["measure_colormap"] = colormap_name
+    st.session_state["measure_auto_cell_on"] = auto_cell_boundary
+    st.session_state["measure_cell_vals"] = build_cell_vals(heatmap, cell_mask, pixel_sum, force) if auto_cell_boundary else None
+    st.session_state["measure_cell_mask"] = cell_mask if auto_cell_boundary else None
 
 
 st.set_page_config(page_title="Shape2Force (S2F)", page_icon="🦠", layout="centered")
@@ -123,11 +134,7 @@ st.title("🦠 Shape2Force (S2F)")
 st.caption("Predict traction force maps from bright-field microscopy images of cells or spheroids")
 
 # Folders
-ckp_base = os.path.join(S2F_ROOT, "ckp")
-if not os.path.isdir(ckp_base):
-    project_root = os.path.dirname(S2F_ROOT)
-    if os.path.isdir(os.path.join(project_root, "ckp")):
-        ckp_base = os.path.join(project_root, "ckp")
+ckp_base = get_ckp_base(S2F_ROOT)
 ckp_single_cell = os.path.join(ckp_base, "single_cell")
 ckp_spheroid = os.path.join(ckp_base, "spheroid")
 sample_base = os.path.join(S2F_ROOT, "samples")
@@ -179,7 +186,7 @@ with st.sidebar:
 
     ckp_files = get_ckp_files_for_model(model_type)
     ckp_folder = ckp_single_cell if model_type == "single_cell" else ckp_spheroid
-    ckp_subfolder_name = "single_cell" if model_type == "single_cell" else "spheroid"
+    ckp_subfolder_name = model_subfolder(model_type)
 
     if ckp_files:
         checkpoint = st.selectbox(
@@ -265,7 +272,7 @@ if img_source == "Upload":
 else:
     sample_files = get_sample_files_for_model(model_type)
     sample_folder = sample_single_cell if model_type == "single_cell" else sample_spheroid
-    sample_subfolder_name = "single_cell" if model_type == "single_cell" else "spheroid"
+    sample_subfolder_name = model_subfolder(model_type)
     if sample_files:
         selected_sample = st.selectbox(
             f"Select example image (from `samples/{sample_subfolder_name}/`)",
@@ -345,16 +352,10 @@ if just_ran:
                 "pixel_sum": pixel_sum,
                 "cache_key": cache_key,
             }
-            st.session_state["measure_raw_heatmap"] = heatmap.copy()
-            st.session_state["measure_display_mode"] = display_mode
-            st.session_state["measure_bf_img"] = img.copy()
-            st.session_state["measure_input_filename"] = key_img or "image"
-            st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force)
-            st.session_state["measure_colormap"] = colormap_name
-            cell_mask = estimate_cell_mask(heatmap)
-            st.session_state["measure_auto_cell_on"] = auto_cell_boundary
-            st.session_state["measure_cell_vals"] = build_cell_vals(heatmap, cell_mask, pixel_sum, force) if auto_cell_boundary else None
-            st.session_state["measure_cell_mask"] = cell_mask if auto_cell_boundary else None
+            _populate_measure_session_state(
+                heatmap, img, pixel_sum, force, key_img, colormap_name,
+                display_mode, auto_cell_boundary,
+            )
 
             render_result_display(
                 img, heatmap, display_heatmap, pixel_sum, force, key_img,
@@ -373,16 +374,10 @@ elif has_cached:
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
     display_heatmap = apply_display_scale(heatmap, display_mode)
 
-    st.session_state["measure_raw_heatmap"] = heatmap.copy()
-    st.session_state["measure_display_mode"] = display_mode
-    st.session_state["measure_bf_img"] = img.copy()
-    st.session_state["measure_input_filename"] = key_img or "image"
-    st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force)
-    st.session_state["measure_colormap"] = colormap_name
-    cell_mask = estimate_cell_mask(heatmap)
-    st.session_state["measure_auto_cell_on"] = auto_cell_boundary
-    st.session_state["measure_cell_vals"] = build_cell_vals(heatmap, cell_mask, pixel_sum, force) if auto_cell_boundary else None
-    st.session_state["measure_cell_mask"] = cell_mask if auto_cell_boundary else None
+    _populate_measure_session_state(
+        heatmap, img, pixel_sum, force, key_img, colormap_name,
+        display_mode, auto_cell_boundary,
+    )
 
     if st.session_state.pop("open_measure_dialog", False):
         measure_region_dialog()
