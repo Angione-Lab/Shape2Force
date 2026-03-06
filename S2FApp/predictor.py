@@ -129,7 +129,7 @@ class S2FPredictor:
         self._use_tanh_output = model_type == "single_cell"  # single_cell uses tanh, spheroid uses sigmoid
         self.config_path = os.path.join(S2F_ROOT, "config", "substrate_settings.json")
 
-    def predict(self, image_path=None, image_array=None, substrate="fibroblasts_PDMS",
+    def predict(self, image_path=None, image_array=None, substrate="Fibroblasts_Fibronectin_6KPa",
                 substrate_config=None):
         """
         Run prediction on an image.
