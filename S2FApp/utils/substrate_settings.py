@@ -50,7 +50,7 @@ def resolve_substrate(name, config=None, config_path=None):
 
     s = (name or '').strip()
     if not s:
-        return config.get('default_substrate', 'fibroblasts_PDMS')
+        return config.get('default_substrate', 'Fibroblasts_Fibronectin_6KPa')
 
     substrates = config.get('substrates', {})
     s_lower = s.lower()
@@ -61,7 +61,7 @@ def resolve_substrate(name, config=None, config_path=None):
         if s_lower.startswith(key.lower()) or key.lower().startswith(s_lower):
             return key
 
-    return config.get('default_substrate', 'fibroblasts_PDMS')
+    return config.get('default_substrate', 'Fibroblasts_Fibronectin_6KPa')
 
 
 def get_settings_of_category(substrate_name, config=None, config_path=None):
@@ -81,12 +81,12 @@ def get_settings_of_category(substrate_name, config=None, config_path=None):
 
     substrate_key = resolve_substrate(substrate_name, config=config)
     substrates = config.get('substrates', {})
-    default = config.get('default_substrate', 'fibroblasts_PDMS')
+    default = config.get('default_substrate', 'Fibroblasts_Fibronectin_6KPa')
 
     if substrate_key in substrates:
         return substrates[substrate_key].copy()
 
-    default_settings = substrates.get(default, {'name': 'Fibroblasts on PDMS', 'pixelsize': 3.0769, 'young': 6000})
+    default_settings = substrates.get(default, {'name': 'Fibroblasts on Fibronectin (6 kPa)', 'pixelsize': 3.0769, 'young': 6000})
     return default_settings.copy()
 
 
