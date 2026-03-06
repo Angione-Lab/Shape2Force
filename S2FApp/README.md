@@ -31,7 +31,7 @@ Checkpoints are downloaded automatically from the [Shape2Force model repo](https
 
 1. Choose **Model type**: Single cell or Spheroid
 2. Select a **Checkpoint** from `ckp/`
-3. For single-cell: pick **Substrate** (e.g. fibroblasts_PDMS)
+3. For single-cell: pick **Conditions** (e.g. Fibroblasts_Fibronectin_6KPa)
 4. Upload an image or pick from `samples/`
 5. Click **Run prediction**
 
