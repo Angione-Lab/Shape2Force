@@ -6,8 +6,12 @@ import cv2
 # Model & paths
 MODEL_INPUT_SIZE = 1024
 
+# Default substrate (used when config lookup fails or manual mode fallback)
+DEFAULT_SUBSTRATE = "Fibroblasts_Fibronectin_6KPa"
+
 # UI
 CANVAS_SIZE = 320
+SAMPLE_THUMBNAIL_LIMIT = 8
 COLORMAP_N_SAMPLES = 64
 
 # Model type labels

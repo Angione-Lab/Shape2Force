@@ -4,6 +4,8 @@ Includes: MSE, MS-SSIM, Pixel Correlation (Pearson), Relative Magnitude Error (W
 and evaluation helpers for notebooks and scripts.
 """
 import os
+
+from config.constants import DEFAULT_SUBSTRATE
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -237,7 +239,7 @@ def evaluate_metrics_on_dataset(generator, data_loader, device=None, description
 
             if use_settings and normalization_params is not None:
                 from models.s2f_model import create_settings_channels
-                meta = metadata if has_metadata else {'substrate': [substrate_override or 'Fibroblasts_Fibronectin_6KPa'] * images.size(0)}
+                meta = metadata if has_metadata else {'substrate': [substrate_override or DEFAULT_SUBSTRATE] * images.size(0)}
                 settings_ch = create_settings_channels(meta, normalization_params, device, images.shape, config_path=config_path)
                 images = torch.cat([images, settings_ch], dim=1)
 
@@ -420,7 +422,7 @@ def plot_predictions(loader, generator, n_samples, device, threshold=0.0,
     bf_batch = torch.stack(bf_list[:n]).to(device, dtype=torch.float32)
     if use_settings and normalization_params:
         from models.s2f_model import create_settings_channels
-        sub = substrate_override or 'Fibroblasts_Fibronectin_6KPa'
+        sub = substrate_override or DEFAULT_SUBSTRATE
         meta_dict = {'substrate': [sub] * n}
         settings_ch = create_settings_channels(meta_dict, normalization_params, device, bf_batch.shape, config_path=config_path)
         bf_batch = torch.cat([bf_batch, settings_ch], dim=1)

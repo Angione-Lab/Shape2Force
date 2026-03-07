@@ -13,20 +13,22 @@ S2F_ROOT = os.path.dirname(os.path.abspath(__file__))
 if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
+from config.constants import DEFAULT_SUBSTRATE, MODEL_INPUT_SIZE
 from models.s2f_model import create_s2f_model
 from utils.paths import get_ckp_base, model_subfolder
 from utils.substrate_settings import get_settings_of_category, compute_settings_normalization
 from utils import config
 
 
-def load_image(filepath, target_size=1024):
+def load_image(filepath, target_size=None):
     """Load and preprocess a bright field image."""
     img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise ValueError(f"Could not load image: {filepath}")
-    if isinstance(target_size, int):
-        target_size = (target_size, target_size)
-    img = cv2.resize(img, target_size)
+    size = target_size if target_size is not None else MODEL_INPUT_SIZE
+    if isinstance(size, int):
+        size = (size, size)
+    img = cv2.resize(img, size)
     img = img.astype(np.float32) / 255.0
     return img
 
@@ -126,7 +128,7 @@ class S2FPredictor:
         self._use_tanh_output = model_type == "single_cell"  # single_cell uses tanh, spheroid uses sigmoid
         self.config_path = os.path.join(S2F_ROOT, "config", "substrate_settings.json")
 
-    def predict(self, image_path=None, image_array=None, substrate="Fibroblasts_Fibronectin_6KPa",
+    def predict(self, image_path=None, image_array=None, substrate=None,
                 substrate_config=None):
         """
         Run prediction on an image.
@@ -138,7 +140,7 @@ class S2FPredictor:
             substrate_config: Optional dict with 'pixelsize' and 'young'. Overrides substrate lookup.
 
         Returns:
-            heatmap: numpy array (1024, 1024) in [0, 1]
+            heatmap: numpy array (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE) in [0, 1]
             force: scalar cell force (sum of heatmap * SCALE_FACTOR_FORCE)
             pixel_sum: raw sum of all pixel values in heatmap
         """
@@ -150,15 +152,16 @@ class S2FPredictor:
                 img = img[:, :, 0] if img.shape[-1] >= 1 else img
             if img.max() > 1.0:
                 img = img / 255.0
-            img = cv2.resize(img, (1024, 1024))
+            img = cv2.resize(img, (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE))
         else:
             raise ValueError("Provide image_path or image_array")
 
         x = torch.from_numpy(img).float().unsqueeze(0).unsqueeze(0).to(self.device)  # [1,1,H,W]
 
         if self.model_type == "single_cell" and self.norm_params is not None:
+            sub = substrate if substrate is not None else DEFAULT_SUBSTRATE
             settings_ch = create_settings_channels_single(
-                substrate, self.device, x.shape[2], x.shape[3],
+                sub, self.device, x.shape[2], x.shape[3],
                 config_path=self.config_path, substrate_config=substrate_config
             )
             x = torch.cat([x, settings_ch], dim=1)  # [1,3,H,W]

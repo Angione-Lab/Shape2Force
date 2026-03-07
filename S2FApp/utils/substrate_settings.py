@@ -5,6 +5,8 @@ Loads from config/substrate_settings.json - users can edit this file to add/modi
 import os
 import json
 
+from config.constants import DEFAULT_SUBSTRATE
+
 
 def _default_config_path():
     """Default path to substrate settings config (S2F/config/substrate_settings.json)."""
@@ -50,7 +52,7 @@ def resolve_substrate(name, config=None, config_path=None):
 
     s = (name or '').strip()
     if not s:
-        return config.get('default_substrate', 'Fibroblasts_Fibronectin_6KPa')
+        return config.get('default_substrate', DEFAULT_SUBSTRATE)
 
     substrates = config.get('substrates', {})
     s_lower = s.lower()
@@ -61,7 +63,7 @@ def resolve_substrate(name, config=None, config_path=None):
         if s_lower.startswith(key.lower()) or key.lower().startswith(s_lower):
             return key
 
-    return config.get('default_substrate', 'Fibroblasts_Fibronectin_6KPa')
+    return config.get('default_substrate', DEFAULT_SUBSTRATE)
 
 
 def get_settings_of_category(substrate_name, config=None, config_path=None):
@@ -81,12 +83,15 @@ def get_settings_of_category(substrate_name, config=None, config_path=None):
 
     substrate_key = resolve_substrate(substrate_name, config=config)
     substrates = config.get('substrates', {})
-    default = config.get('default_substrate', 'Fibroblasts_Fibronectin_6KPa')
+    default = config.get('default_substrate', DEFAULT_SUBSTRATE)
 
     if substrate_key in substrates:
         return substrates[substrate_key].copy()
 
-    default_settings = substrates.get(default, {'name': 'Fibroblasts on Fibronectin (6 kPa)', 'pixelsize': 3.0769, 'young': 6000})
+    default_settings = substrates.get(
+        default,
+        {'name': 'Fibroblasts on Fibronectin (6 kPa)', 'pixelsize': 3.0769, 'young': 6000},
+    )
     return default_settings.copy()
 
 

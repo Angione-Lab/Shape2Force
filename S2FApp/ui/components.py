@@ -50,18 +50,23 @@ _REGION_COLORS = [
 ]
 
 
-def make_annotated_heatmap(heatmap_rgb, mask, fill_alpha=0.3, stroke_color=(255, 102, 0), stroke_width=2):
-    """Composite heatmap with drawn region overlay."""
-    annotated = heatmap_rgb.copy()
+def _draw_region_overlay(annotated, mask, color, fill_alpha=0.3, stroke_width=2):
+    """Draw single region overlay on annotated heatmap (fill + alpha blend + contour). Modifies annotated in place."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     overlay = annotated.copy()
-    cv2.fillPoly(overlay, contours, stroke_color)
+    cv2.fillPoly(overlay, contours, color)
     mask_3d = np.stack([mask] * 3, axis=-1).astype(bool)
     annotated[mask_3d] = (
         (1 - fill_alpha) * annotated[mask_3d].astype(np.float32)
         + fill_alpha * overlay[mask_3d].astype(np.float32)
     ).astype(np.uint8)
-    cv2.drawContours(annotated, contours, -1, stroke_color, stroke_width)
+    cv2.drawContours(annotated, contours, -1, color, stroke_width)
+
+
+def make_annotated_heatmap(heatmap_rgb, mask, fill_alpha=0.3, stroke_color=(255, 102, 0), stroke_width=2):
+    """Composite heatmap with drawn region overlay."""
+    annotated = heatmap_rgb.copy()
+    _draw_region_overlay(annotated, mask, stroke_color, fill_alpha, stroke_width)
     return annotated
 
 
@@ -73,15 +78,7 @@ def make_annotated_heatmap_multi_regions(heatmap_rgb, masks, labels, cell_mask=N
         cv2.drawContours(annotated, contours, -1, (255, 0, 0), 2)
     for i, mask in enumerate(masks):
         color = _REGION_COLORS[i % len(_REGION_COLORS)]
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        overlay = annotated.copy()
-        cv2.fillPoly(overlay, contours, color)
-        mask_3d = np.stack([mask] * 3, axis=-1).astype(bool)
-        annotated[mask_3d] = (
-            (1 - fill_alpha) * annotated[mask_3d].astype(np.float32)
-            + fill_alpha * overlay[mask_3d].astype(np.float32)
-        ).astype(np.uint8)
-        cv2.drawContours(annotated, contours, -1, color, 2)
+        _draw_region_overlay(annotated, mask, color, fill_alpha, stroke_width=2)
         # Label at centroid
         M = cv2.moments(mask)
         if M["m00"] > 0:
@@ -159,7 +156,7 @@ def _obj_to_pts(obj, scale_x, scale_y, heatmap_w, heatmap_h):
 def parse_canvas_shapes_to_masks(json_data, canvas_h, canvas_w, heatmap_h, heatmap_w):
     """Parse drawn shapes and return a list of individual masks (one per shape)."""
     if not json_data or "objects" not in json_data or not json_data["objects"]:
-        return [], 0
+        return []
     scale_x = heatmap_w / canvas_w
     scale_y = heatmap_h / canvas_h
     masks = []
@@ -170,7 +167,7 @@ def parse_canvas_shapes_to_masks(json_data, canvas_h, canvas_w, heatmap_h, heatm
         mask = np.zeros((heatmap_h, heatmap_w), dtype=np.uint8)
         cv2.fillPoly(mask, [pts], 1)
         masks.append(mask)
-    return masks, len(masks)
+    return masks
 
 
 def build_original_vals(raw_heatmap, pixel_sum, force):
@@ -385,8 +382,8 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
         )
 
     if canvas_result.json_data:
-        masks, n = parse_canvas_shapes_to_masks(canvas_result.json_data, CANVAS_SIZE, CANVAS_SIZE, h, w)
-        if masks and n > 0:
+        masks = parse_canvas_shapes_to_masks(canvas_result.json_data, CANVAS_SIZE, CANVAS_SIZE, h, w)
+        if masks:
             metrics_list = [compute_region_metrics(raw_heatmap, m, original_vals) for m in masks]
             if cell_mask is not None and np.any(cell_mask > 0):
                 cell_metrics = compute_region_metrics(raw_heatmap, cell_mask, original_vals)
@@ -433,13 +430,18 @@ def _add_cell_contour_to_fig(fig_pl, cell_mask, row=1, col=2):
 
 
 def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, key_img, download_key_suffix="",
-                         colormap_name="Jet", display_mode="Auto", measure_region_dialog=None, auto_cell_boundary=True):
+                         colormap_name="Jet", display_mode="Auto", measure_region_dialog=None, auto_cell_boundary=True,
+                         cell_mask=None):
     """
     Render prediction result: plot, metrics, expander, and download/measure buttons.
     measure_region_dialog: callable to open measure dialog (when ST_DIALOG available).
     auto_cell_boundary: when True, use estimated cell area for metrics; when False, use entire map.
+    cell_mask: optional precomputed cell mask; if None and auto_cell_boundary, will be computed.
     """
-    cell_mask = estimate_cell_mask(raw_heatmap) if auto_cell_boundary else None
+    if cell_mask is None and auto_cell_boundary:
+        cell_mask = estimate_cell_mask(raw_heatmap)
+    elif not auto_cell_boundary:
+        cell_mask = None
     cell_pixel_sum, cell_force, cell_mean = _compute_cell_metrics(raw_heatmap, cell_mask, pixel_sum, force) if cell_mask is not None else (None, None, None)
     use_cell_metrics = auto_cell_boundary and cell_pixel_sum is not None and cell_force is not None and cell_mean is not None
 

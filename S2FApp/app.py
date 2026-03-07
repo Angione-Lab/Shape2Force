@@ -17,10 +17,12 @@ if S2F_ROOT not in sys.path:
 
 from config.constants import (
     COLORMAPS,
+    DEFAULT_SUBSTRATE,
     MODEL_TYPE_LABELS,
     SAMPLE_EXTENSIONS,
+    SAMPLE_THUMBNAIL_LIMIT,
 )
-from utils.paths import get_ckp_base, model_subfolder
+from utils.paths import get_ckp_base, get_ckp_folder, get_sample_folder, list_files_in_folder, model_subfolder
 from utils.segmentation import estimate_cell_mask
 from utils.substrate_settings import list_substrates
 from utils.display import apply_display_scale
@@ -70,9 +72,10 @@ def _get_measure_dialog_fn():
 
 
 def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, colormap_name,
-                                    display_mode, auto_cell_boundary):
-    """Populate session state for the measure tool."""
-    cell_mask = estimate_cell_mask(heatmap)
+                                    display_mode, auto_cell_boundary, cell_mask=None):
+    """Populate session state for the measure tool. If cell_mask is None and auto_cell_boundary, computes it."""
+    if cell_mask is None and auto_cell_boundary:
+        cell_mask = estimate_cell_mask(heatmap)
     st.session_state["measure_raw_heatmap"] = heatmap.copy()
     st.session_state["measure_display_mode"] = display_mode
     st.session_state["measure_bf_img"] = img.copy()
@@ -135,25 +138,6 @@ st.caption("Predict traction force maps from bright-field microscopy images of c
 
 # Folders
 ckp_base = get_ckp_base(S2F_ROOT)
-ckp_single_cell = os.path.join(ckp_base, "single_cell")
-ckp_spheroid = os.path.join(ckp_base, "spheroid")
-sample_base = os.path.join(S2F_ROOT, "samples")
-sample_single_cell = os.path.join(sample_base, "single_cell")
-sample_spheroid = os.path.join(sample_base, "spheroid")
-
-
-def get_ckp_files_for_model(model_type):
-    folder = ckp_single_cell if model_type == "single_cell" else ckp_spheroid
-    if os.path.isdir(folder):
-        return sorted(f for f in os.listdir(folder) if f.endswith(".pth"))
-    return []
-
-
-def get_sample_files_for_model(model_type):
-    folder = sample_single_cell if model_type == "single_cell" else sample_spheroid
-    if os.path.isdir(folder):
-        return sorted(f for f in os.listdir(folder) if f.lower().endswith(SAMPLE_EXTENSIONS))
-    return []
 
 
 def get_cached_sample_thumbnails(model_type, sample_folder, sample_files):
@@ -164,7 +148,7 @@ def get_cached_sample_thumbnails(model_type, sample_folder, sample_files):
     cache = st.session_state["sample_thumbnails"]
     if cache_key not in cache:
         thumbnails = []
-        for fname in sample_files[:8]:
+        for fname in sample_files[:SAMPLE_THUMBNAIL_LIMIT]:
             path = os.path.join(sample_folder, fname)
             img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
             thumbnails.append((fname, img))
@@ -184,8 +168,8 @@ with st.sidebar:
         help="Single cell: substrate-aware force prediction. Spheroid: spheroid force maps.",
     )
 
-    ckp_files = get_ckp_files_for_model(model_type)
-    ckp_folder = ckp_single_cell if model_type == "single_cell" else ckp_spheroid
+    ckp_folder = get_ckp_folder(ckp_base, model_type)
+    ckp_files = list_files_in_folder(ckp_folder, ".pth")
     ckp_subfolder_name = model_subfolder(model_type)
 
     if ckp_files:
@@ -199,7 +183,7 @@ with st.sidebar:
         checkpoint = None
 
     substrate_config = None
-    substrate_val = "Fibroblasts_Fibronectin_6KPa"
+    substrate_val = DEFAULT_SUBSTRATE
     use_manual = True
     if model_type == "single_cell":
         try:
@@ -270,8 +254,8 @@ if img_source == "Upload":
         img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
         uploaded.seek(0)
 else:
-    sample_files = get_sample_files_for_model(model_type)
-    sample_folder = sample_single_cell if model_type == "single_cell" else sample_spheroid
+    sample_folder = get_sample_folder(S2F_ROOT, model_type)
+    sample_files = list_files_in_folder(sample_folder, SAMPLE_EXTENSIONS)
     sample_subfolder_name = model_subfolder(model_type)
     if sample_files:
         selected_sample = st.selectbox(
@@ -333,7 +317,7 @@ if just_ran:
     with st.spinner("Loading model and predicting..."):
         try:
             predictor = get_or_create_predictor(model_type, checkpoint, ckp_folder)
-            sub_val = substrate_val if model_type == "single_cell" and not use_manual else "Fibroblasts_Fibronectin_6KPa"
+            sub_val = substrate_val if model_type == "single_cell" and not use_manual else DEFAULT_SUBSTRATE
             heatmap, force, pixel_sum = predictor.predict(
                 image_array=img,
                 substrate=sub_val,
@@ -352,17 +336,18 @@ if just_ran:
                 "pixel_sum": pixel_sum,
                 "cache_key": cache_key,
             }
+            cell_mask = estimate_cell_mask(heatmap) if auto_cell_boundary else None
             _populate_measure_session_state(
                 heatmap, img, pixel_sum, force, key_img, colormap_name,
-                display_mode, auto_cell_boundary,
+                display_mode, auto_cell_boundary, cell_mask=cell_mask,
             )
-
             render_result_display(
                 img, heatmap, display_heatmap, pixel_sum, force, key_img,
                 colormap_name=colormap_name,
                 display_mode=display_mode,
                 measure_region_dialog=_get_measure_dialog_fn(),
                 auto_cell_boundary=auto_cell_boundary,
+                cell_mask=cell_mask,
             )
 
         except Exception as e:
@@ -373,10 +358,10 @@ elif has_cached:
     r = st.session_state["prediction_result"]
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
     display_heatmap = apply_display_scale(heatmap, display_mode)
-
+    cell_mask = estimate_cell_mask(heatmap) if auto_cell_boundary else None
     _populate_measure_session_state(
         heatmap, img, pixel_sum, force, key_img, colormap_name,
-        display_mode, auto_cell_boundary,
+        display_mode, auto_cell_boundary, cell_mask=cell_mask,
     )
 
     if st.session_state.pop("open_measure_dialog", False):
@@ -390,6 +375,7 @@ elif has_cached:
         display_mode=display_mode,
         measure_region_dialog=_get_measure_dialog_fn(),
         auto_cell_boundary=auto_cell_boundary,
+        cell_mask=cell_mask,
     )
 
 elif run and not checkpoint:
