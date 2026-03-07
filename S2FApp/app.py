@@ -206,7 +206,7 @@ with st.sidebar:
             st.markdown('<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: 0.5rem;">Conditions</p>', unsafe_allow_html=True)
             conditions_source = st.radio(
                 "Conditions",
-                ["Manually", "From config"],
+                ["From config", "Manually"],
                 horizontal=True,
                 label_visibility="collapsed",
             )
@@ -245,7 +245,7 @@ with st.sidebar:
 
     auto_cell_boundary = st.checkbox(
         "Auto boundary",
-        value=True,
+        value=False,
         help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
     )
 

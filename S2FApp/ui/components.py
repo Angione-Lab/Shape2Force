@@ -1,5 +1,6 @@
 """UI components for S2F App."""
 import csv
+import html
 import io
 import os
 
@@ -17,7 +18,13 @@ from config.constants import (
     TOOL_LABELS,
 )
 from utils.display import apply_display_scale, cv_colormap_to_plotly_colorscale
-from utils.report import heatmap_to_rgb, heatmap_to_rgb_with_contour, heatmap_to_png_bytes, create_pdf_report
+from utils.report import (
+    heatmap_to_rgb,
+    heatmap_to_rgb_with_contour,
+    heatmap_to_png_bytes,
+    create_pdf_report,
+    create_measure_pdf_report,
+)
 from utils.segmentation import estimate_cell_mask
 
 try:
@@ -28,6 +35,19 @@ except (ImportError, AttributeError):
 
 # Resolve st.dialog early to fix ordering bug (used in _render_result_display)
 ST_DIALOG = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
+
+
+# Distinct colors for each region (RGB - heatmap_rgb is RGB)
+_REGION_COLORS = [
+    (255, 102, 0),   # orange
+    (255, 165, 0),   # orange-red
+    (255, 255, 0),   # yellow
+    (255, 0, 255),   # magenta
+    (0, 255, 127),   # spring green
+    (0, 128, 255),   # blue
+    (203, 192, 255), # lavender
+    (255, 215, 0),   # gold
+]
 
 
 def make_annotated_heatmap(heatmap_rgb, mask, fill_alpha=0.3, stroke_color=(255, 102, 0), stroke_width=2):
@@ -42,6 +62,40 @@ def make_annotated_heatmap(heatmap_rgb, mask, fill_alpha=0.3, stroke_color=(255,
         + fill_alpha * overlay[mask_3d].astype(np.float32)
     ).astype(np.uint8)
     cv2.drawContours(annotated, contours, -1, stroke_color, stroke_width)
+    return annotated
+
+
+def make_annotated_heatmap_multi_regions(heatmap_rgb, masks, labels, cell_mask=None, fill_alpha=0.3):
+    """Draw each region separately with distinct color and label (R1, R2, ...). No merging."""
+    annotated = heatmap_rgb.copy()
+    if cell_mask is not None and np.any(cell_mask > 0):
+        contours, _ = cv2.findContours(cell_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(annotated, contours, -1, (255, 0, 0), 2)
+    for i, mask in enumerate(masks):
+        color = _REGION_COLORS[i % len(_REGION_COLORS)]
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        overlay = annotated.copy()
+        cv2.fillPoly(overlay, contours, color)
+        mask_3d = np.stack([mask] * 3, axis=-1).astype(bool)
+        annotated[mask_3d] = (
+            (1 - fill_alpha) * annotated[mask_3d].astype(np.float32)
+            + fill_alpha * overlay[mask_3d].astype(np.float32)
+        ).astype(np.uint8)
+        cv2.drawContours(annotated, contours, -1, color, 2)
+        # Label at centroid
+        M = cv2.moments(mask)
+        if M["m00"] > 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            label = labels[i] if i < len(labels) else f"R{i + 1}"
+            cv2.putText(
+                annotated, label, (cx - 12, cy + 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA
+            )
+            cv2.putText(
+                annotated, label, (cx - 12, cy + 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1, cv2.LINE_AA
+            )
     return annotated
 
 
@@ -169,9 +223,13 @@ def compute_region_metrics(raw_heatmap, mask, original_vals=None):
     }
 
 
-def render_region_metrics_and_downloads(metrics_list, heatmap_rgb, combined_mask, input_filename, key_suffix, has_original_vals,
-                                        first_region_label=None):
-    """Render per-shape metrics table and download buttons. first_region_label: custom label for first row (e.g. 'Auto boundary')."""
+def render_region_metrics_and_downloads(metrics_list, masks, heatmap_rgb, input_filename, key_suffix, has_original_vals,
+                                        first_region_label=None, bf_img=None, cell_mask=None, colormap_name="Jet"):
+    """
+    Render per-shape metrics table and download buttons.
+    first_region_label: custom label for first row (e.g. 'Auto boundary').
+    masks: list of region masks (user-drawn only; used for labeled heatmap with R1, R2...).
+    """
     base_name = os.path.splitext(input_filename or "image")[0]
     st.markdown("**Regions (each selection = one row)**")
     if has_original_vals:
@@ -193,21 +251,56 @@ def render_region_metrics_and_downloads(metrics_list, heatmap_rgb, combined_mask
             csv_rows.append([base_name, region_label, metrics["area_px"], f"{metrics['force_sum']:.4f}",
                             f"{metrics['mean']:.6f}"])
         table_rows.append(row)
-    st.table(table_rows)
+    # Render as HTML table to avoid Streamlit's default row/column indices
+    header = table_rows[0]
+    body = table_rows[1:]
+    th_cells = "".join(
+        f'<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">{html.escape(str(h))}</th>'
+        for h in header
+    )
+    rows_html = [
+        "<tr>"
+        + "".join(
+            f'<td style="border: 1px solid #ddd; padding: 8px;">{html.escape(str(c))}</td>'
+            for c in row
+        )
+        + "</tr>"
+        for row in body
+    ]
+    table_html = (
+        f'<table style="border-collapse: collapse; width: 100%;">'
+        f"<thead><tr>{th_cells}</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody></table>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
     buf_csv = io.StringIO()
     csv.writer(buf_csv).writerows(csv_rows)
+    # Annotated heatmap: each region separate with R1, R2 labels (no merging)
+    # heatmap_rgb already has cell contour if applicable
+    region_labels = [f"R{i + 1}" for i in range(len(masks))]
+    heatmap_labeled = make_annotated_heatmap_multi_regions(heatmap_rgb.copy(), masks, region_labels, cell_mask=None)
     buf_img = io.BytesIO()
-    Image.fromarray(make_annotated_heatmap(heatmap_rgb, combined_mask)).save(buf_img, format="PNG")
+    Image.fromarray(heatmap_labeled).save(buf_img, format="PNG")
     buf_img.seek(0)
-    dl_col1, dl_col2 = st.columns(2)
-    with dl_col1:
+    # PDF report (requires bf_img)
+    pdf_bytes = None
+    if bf_img is not None:
+        pdf_bytes = create_measure_pdf_report(bf_img, heatmap_labeled, table_rows, base_name)
+    n_cols = 3 if pdf_bytes is not None else 2
+    dl_cols = st.columns(n_cols)
+    with dl_cols[0]:
         st.download_button("Download all regions", data=buf_csv.getvalue(),
             file_name=f"{base_name}_all_regions.csv", mime="text/csv",
             key=f"download_all_regions_{key_suffix}", icon=":material/download:")
-    with dl_col2:
-        st.download_button("Download annotated heatmap", data=buf_img.getvalue(),
+    with dl_cols[1]:
+        st.download_button("Download heatmap", data=buf_img.getvalue(),
             file_name=f"{base_name}_annotated_heatmap.png", mime="image/png",
             key=f"download_annotated_{key_suffix}", icon=":material/image:")
+    if pdf_bytes is not None:
+        with dl_cols[2]:
+            st.download_button("Download report", data=pdf_bytes,
+                file_name=f"{base_name}_measure_report.pdf", mime="application/pdf",
+                key=f"download_measure_pdf_{key_suffix}", icon=":material/picture_as_pdf:")
 
 
 def _draw_contour_on_image(img_rgb, mask, stroke_color=(255, 0, 0), stroke_width=2):
@@ -298,12 +391,10 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
             if cell_mask is not None and np.any(cell_mask > 0):
                 cell_metrics = compute_region_metrics(raw_heatmap, cell_mask, original_vals)
                 metrics_list = [cell_metrics] + metrics_list
-            combined_mask = masks[0].copy()
-            for m in masks[1:]:
-                combined_mask = np.maximum(combined_mask, m)
             render_region_metrics_and_downloads(
-                metrics_list, heatmap_rgb, combined_mask, input_filename, key_suffix, original_vals is not None,
+                metrics_list, masks, heatmap_rgb, input_filename, key_suffix, original_vals is not None,
                 first_region_label="Auto boundary" if (cell_mask is not None and np.any(cell_mask > 0)) else None,
+                bf_img=bf_img, cell_mask=cell_mask, colormap_name=colormap_name,
             )
 
 
@@ -355,7 +446,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
     base_name = os.path.splitext(key_img or "image")[0]
     if use_cell_metrics:
         main_csv_rows = [
-            ["image", "Cell sum", "Cell force (scaled)", "Heatmap max", "Cell mean"],
+            ["image", "Cell sum", "Cell force (scaled)", "Heatmap max", "Heatmap mean"],
             [base_name, f"{cell_pixel_sum:.2f}", f"{cell_force:.2f}",
              f"{np.max(raw_heatmap):.4f}", f"{cell_mean:.4f}"],
         ]
@@ -401,7 +492,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
         with col3:
             st.metric("Heatmap max", f"{np.max(raw_heatmap):.4f}", help="Peak force intensity in the map")
         with col4:
-            st.metric("Cell mean", f"{cell_mean:.4f}", help="Mean force over estimated cell area")
+            st.metric("Heatmap mean", f"{cell_mean:.4f}", help="Mean force over estimated cell area")
     else:
         with col1:
             st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
@@ -428,7 +519,7 @@ This is the raw image you provided—it shows cell shape but not forces.
 - **Cell sum:** Sum over estimated cell area (background excluded)
 - **Cell force (scaled):** Total traction force in physical units
 - **Heatmap max:** Peak force intensity in the map
-- **Cell mean:** Mean force over the estimated cell area
+- **Heatmap mean:** Mean force over the estimated cell area
             """)
         else:
             st.markdown("""
