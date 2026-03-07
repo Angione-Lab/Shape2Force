@@ -23,6 +23,7 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 COPY --chown=user:user app.py predictor.py download_ckp.py ./
 COPY --chown=user:user .streamlit/ .streamlit/
 COPY --chown=user:user models/ models/
+COPY --chown=user:user ui/ ui/
 COPY --chown=user:user utils/ utils/
 COPY --chown=user:user config/ config/
 COPY --chown=user:user samples/ samples/
