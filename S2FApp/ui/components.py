@@ -33,8 +33,42 @@ try:
 except (ImportError, AttributeError):
     HAS_DRAWABLE_CANVAS = False
 
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
 # Resolve st.dialog early to fix ordering bug (used in _render_result_display)
 ST_DIALOG = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
+
+
+def render_system_status():
+    """Render a small live CPU/memory status panel in the sidebar."""
+    if not HAS_PSUTIL:
+        return
+    try:
+        cpu = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        mem_used_gb = mem.used / (1024**3)
+        mem_total_gb = mem.total / (1024**3)
+        mem_pct = mem.percent
+        st.sidebar.markdown(
+            f"""
+            <div style="
+                font-size: 0.8rem; margin-top: 0.5rem; padding: 6px 10px;
+                border-radius: 6px;
+                border: 1px solid rgba(148, 163, 184, 0.3);
+                background: rgba(148, 163, 184, 0.1);
+                color: inherit;
+            ">
+                <strong>System</strong> CPU {cpu:.0f}% · Mem {mem_pct:.0f}% ({mem_used_gb:.1f}/{mem_total_gb:.1f} GB)
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
 
 
 # Distinct colors for each region (RGB - heatmap_rgb is RGB)

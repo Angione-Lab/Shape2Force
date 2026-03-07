@@ -31,6 +31,7 @@ from ui.components import (
     build_cell_vals,
     render_result_display,
     render_region_canvas,
+    render_system_status,
     ST_DIALOG,
     HAS_DRAWABLE_CANVAS,
 )
@@ -384,5 +385,5 @@ elif run and not has_image:
     st.warning("Please upload an image or select an example.")
 
 st.sidebar.divider()
-st.sidebar.caption("If you find this software useful, please cite:")
-st.sidebar.caption(CITATION)
+render_system_status()
+st.sidebar.caption("<br>If you find this software useful, please cite:<br>" + CITATION, unsafe_allow_html=True)
