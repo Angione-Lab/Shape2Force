@@ -17,7 +17,7 @@ COPY requirements.txt .
 
 # Install Python dependencies - CPU-only PyTorch to fit Space memory limits (avoids OOM)
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir numpy opencv-python scipy scikit-image streamlit matplotlib Pillow plotly huggingface_hub reportlab streamlit-drawable-canvas-fix
+    pip install --no-cache-dir numpy opencv-python scipy scikit-image streamlit matplotlib Pillow plotly huggingface_hub reportlab streamlit-drawable-canvas-fix psutil
 
 # Copy app code (chown for HF Spaces permissions)
 COPY --chown=user:user app.py predictor.py download_ckp.py ./
