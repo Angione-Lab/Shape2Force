@@ -49,8 +49,14 @@ if HAS_DRAWABLE_CANVAS and ST_DIALOG:
         if raw_heatmap is None:
             st.warning("No prediction available to measure.")
             return
-        display_mode = st.session_state.get("measure_display_mode", "Auto")
-        display_heatmap = apply_display_scale(raw_heatmap, display_mode)
+        display_mode = st.session_state.get("measure_display_mode", "Full")
+        display_heatmap = apply_display_scale(
+            raw_heatmap, display_mode,
+            min_percentile=st.session_state.get("measure_min_percentile", 0),
+            max_percentile=st.session_state.get("measure_max_percentile", 100),
+            clip_min=st.session_state.get("measure_clip_min", 0),
+            clip_max=st.session_state.get("measure_clip_max", 1),
+        )
         bf_img = st.session_state.get("measure_bf_img")
         original_vals = st.session_state.get("measure_original_vals")
         cell_vals = st.session_state.get("measure_cell_vals")
@@ -73,12 +79,17 @@ def _get_measure_dialog_fn():
 
 
 def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, colormap_name,
-                                    display_mode, auto_cell_boundary, cell_mask=None):
+                                    display_mode, auto_cell_boundary, cell_mask=None,
+                                    min_percentile=0, max_percentile=100, clip_min=0, clip_max=1):
     """Populate session state for the measure tool. If cell_mask is None and auto_cell_boundary, computes it."""
     if cell_mask is None and auto_cell_boundary:
         cell_mask = estimate_cell_mask(heatmap)
     st.session_state["measure_raw_heatmap"] = heatmap.copy()
     st.session_state["measure_display_mode"] = display_mode
+    st.session_state["measure_min_percentile"] = min_percentile
+    st.session_state["measure_max_percentile"] = max_percentile
+    st.session_state["measure_clip_min"] = clip_min
+    st.session_state["measure_clip_max"] = clip_max
     st.session_state["measure_bf_img"] = img.copy()
     st.session_state["measure_input_filename"] = key_img or "image"
     st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force)
@@ -216,22 +227,46 @@ with st.sidebar:
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
 
-    display_mode = st.radio(
-        "Force scale",
-        ["Auto", "Fixed"],
-        help="Auto: map data range to full color scale (Fiji-style). Fixed: use 0-1 range. Metrics always show raw values.",
-        horizontal=True,
+    auto_cell_boundary = st.toggle(
+        "Auto boundary",
+        value=False,
+        help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
     )
+
+    st.markdown('<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: 0.5rem;">Heatmap display</p>', unsafe_allow_html=True)
+    display_mode = st.radio(
+        "Mode",
+        ["Full", "Percentile", "Rescale", "Clip", "Filter"],
+        help="Full: 0–1 as-is. Percentile: min/max percentiles. Rescale: stretch range to colors. Clip: clip, keep scale. Filter: show only in range.",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    min_percentile, max_percentile = 0, 100
+    clip_min, clip_max = 0.0, 1.0
+    if display_mode == "Percentile":
+        col_pmin, col_pmax = st.columns(2)
+        with col_pmin:
+            min_percentile = st.slider("Min percentile", 0, 100, 2, 1, help="Values below this percentile → black")
+        with col_pmax:
+            max_percentile = st.slider("Max percentile", 0, 100, 99, 1, help="Values above this percentile → white")
+        if min_percentile >= max_percentile:
+            st.warning("Min percentile must be less than max. Using min=0, max=100.")
+            min_percentile, max_percentile = 0, 100
+    elif display_mode in ("Rescale", "Clip", "Filter"):
+        col_cmin, col_cmax = st.columns(2)
+        with col_cmin:
+            clip_min = st.number_input("Min", value=0.0, min_value=None, max_value=None, step=0.01, format="%.3f",
+                                       help="Rescale: below → black. Clip: clamp to min. Filter: below → discarded.")
+        with col_cmax:
+            clip_max = st.number_input("Max", value=1.0, min_value=None, max_value=None, step=0.01, format="%.3f",
+                                       help="Rescale: above → white. Clip: clamp to max. Filter: above → discarded.")
+        if clip_min >= clip_max:
+            st.warning("Min must be less than max. Using min=0, max=1.")
+            clip_min, clip_max = 0.0, 1.0
     colormap_name = st.selectbox(
         "Heatmap colormap",
         list(COLORMAPS.keys()),
         help="Color scheme for the force map. Viridis is often preferred for accessibility.",
-    )
-
-    auto_cell_boundary = st.checkbox(
-        "Auto boundary",
-        value=False,
-        help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
     )
 
     theme = st.radio("Theme", ["Light", "Dark"], horizontal=True, key="theme_selector")
@@ -327,7 +362,13 @@ if just_ran:
 
             st.success("Prediction complete!")
 
-            display_heatmap = apply_display_scale(heatmap, display_mode)
+            display_heatmap = apply_display_scale(
+                heatmap, display_mode,
+                min_percentile=min_percentile,
+                max_percentile=max_percentile,
+                clip_min=clip_min,
+                clip_max=clip_max,
+            )
 
             cache_key = (model_type, checkpoint, key_img)
             st.session_state["prediction_result"] = {
@@ -341,6 +382,8 @@ if just_ran:
             _populate_measure_session_state(
                 heatmap, img, pixel_sum, force, key_img, colormap_name,
                 display_mode, auto_cell_boundary, cell_mask=cell_mask,
+                min_percentile=min_percentile, max_percentile=max_percentile,
+                clip_min=clip_min, clip_max=clip_max,
             )
             render_result_display(
                 img, heatmap, display_heatmap, pixel_sum, force, key_img,
@@ -358,11 +401,19 @@ if just_ran:
 elif has_cached:
     r = st.session_state["prediction_result"]
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
-    display_heatmap = apply_display_scale(heatmap, display_mode)
+    display_heatmap = apply_display_scale(
+        heatmap, display_mode,
+        min_percentile=min_percentile,
+        max_percentile=max_percentile,
+        clip_min=clip_min,
+        clip_max=clip_max,
+    )
     cell_mask = estimate_cell_mask(heatmap) if auto_cell_boundary else None
     _populate_measure_session_state(
         heatmap, img, pixel_sum, force, key_img, colormap_name,
         display_mode, auto_cell_boundary, cell_mask=cell_mask,
+        min_percentile=min_percentile, max_percentile=max_percentile,
+        clip_min=clip_min, clip_max=clip_max,
     )
 
     if st.session_state.pop("open_measure_dialog", False):
