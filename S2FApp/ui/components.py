@@ -3,6 +3,7 @@ import csv
 import html
 import io
 import os
+import zipfile
 
 import cv2
 import numpy as np
@@ -113,6 +114,135 @@ def render_system_status():
         )
     except Exception:
         pass
+
+
+def render_batch_results(batch_results, colormap_name="Jet", display_mode="Default",
+                        min_percentile=0, max_percentile=100, clip_min=0, clip_max=1,
+                        auto_cell_boundary=False):
+    """
+    Render batch prediction results: summary table, bright-field row, heatmap row, and bulk download.
+    batch_results: list of dicts with img, heatmap, force, pixel_sum, key_img, cell_mask.
+    cell_mask is computed on-the-fly when auto_cell_boundary is True and not stored.
+    """
+    if not batch_results:
+        return
+    st.markdown("### Batch results")
+    # Resolve cell_mask for each result (compute if needed when auto_cell_boundary toggled on)
+    for r in batch_results:
+        if auto_cell_boundary and (r.get("cell_mask") is None or not np.any(r.get("cell_mask", 0) > 0)):
+            r["_cell_mask"] = estimate_cell_mask(r["heatmap"])
+        else:
+            r["_cell_mask"] = r.get("cell_mask") if auto_cell_boundary else None
+    # Build table rows - consistent column names for both modes
+    headers = ["Image", "Force", "Sum", "Max", "Mean"]
+    rows = []
+    csv_rows = [["image"] + headers[1:]]
+    for r in batch_results:
+        heatmap = r["heatmap"]
+        cell_mask = r.get("_cell_mask")
+        key = r["key_img"] or "image"
+        if auto_cell_boundary and cell_mask is not None and np.any(cell_mask > 0):
+            vals = heatmap[cell_mask > 0]
+            cell_pixel_sum = float(np.sum(vals))
+            cell_force = cell_pixel_sum * (r["force"] / r["pixel_sum"]) if r["pixel_sum"] > 0 else cell_pixel_sum
+            cell_mean = cell_pixel_sum / np.sum(cell_mask) if np.sum(cell_mask) > 0 else 0
+            row = [key, f"{cell_force:.2f}", f"{cell_pixel_sum:.2f}",
+                   f"{np.max(heatmap):.4f}", f"{cell_mean:.4f}"]
+        else:
+            row = [key, f"{r['force']:.2f}", f"{r['pixel_sum']:.2f}",
+                   f"{np.max(heatmap):.4f}", f"{np.mean(heatmap):.4f}"]
+        rows.append(row)
+        csv_rows.append([os.path.splitext(key)[0]] + row[1:])
+    # Bright-field row
+    st.markdown("**Input: Bright-field images**")
+    n_cols = min(5, len(batch_results))
+    bf_cols = st.columns(n_cols)
+    for i, r in enumerate(batch_results):
+        img = r["img"]
+        if img.ndim == 2:
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        else:
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        with bf_cols[i % n_cols]:
+            st.image(img_rgb, caption=r["key_img"], use_container_width=True)
+    # Heatmap row
+    st.markdown("**Output: Predicted force maps**")
+    hm_cols = st.columns(n_cols)
+    for i, r in enumerate(batch_results):
+        display_heatmap = apply_display_scale(
+            r["heatmap"], display_mode,
+            min_percentile=min_percentile, max_percentile=max_percentile,
+            clip_min=clip_min, clip_max=clip_max,
+        )
+        hm_rgb = heatmap_to_rgb_with_contour(
+            display_heatmap, colormap_name,
+            r.get("_cell_mask") if auto_cell_boundary else None,
+        )
+        with hm_cols[i % n_cols]:
+            st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
+    # Table
+    st.dataframe(
+        {h: [r[i] for r in rows] for i, h in enumerate(headers)},
+        use_container_width=True,
+        hide_index=True,
+    )
+    # Histograms in accordion (one per row for visibility)
+    with st.expander("Force distribution (histograms)", expanded=False):
+        for i, r in enumerate(batch_results):
+            heatmap = r["heatmap"]
+            cell_mask = r.get("_cell_mask")
+            vals = heatmap[cell_mask > 0] if (cell_mask is not None and np.any(cell_mask > 0) and auto_cell_boundary) else heatmap.flatten()
+            vals = vals[vals > 0] if np.any(vals > 0) else vals
+            st.markdown(f"**{r['key_img']}**")
+            if len(vals) > 0:
+                fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color="#0d9488")])
+                fig.update_layout(
+                    height=220, margin=dict(l=40, r=20, t=10, b=40),
+                    xaxis_title="Force value", yaxis_title="Count",
+                    showlegend=False,
+                )
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.caption("No data")
+            if i < len(batch_results) - 1:
+                st.divider()
+    # Bulk downloads: CSV and heatmaps (zip)
+    buf_csv = io.StringIO()
+    csv.writer(buf_csv).writerows(csv_rows)
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for r in batch_results:
+            display_heatmap = apply_display_scale(
+                r["heatmap"], display_mode,
+                min_percentile=min_percentile, max_percentile=max_percentile,
+                clip_min=clip_min, clip_max=clip_max,
+            )
+            hm_bytes = heatmap_to_png_bytes(
+                display_heatmap, colormap_name,
+                r.get("_cell_mask") if auto_cell_boundary else None,
+            )
+            base = os.path.splitext(r["key_img"] or "image")[0]
+            zf.writestr(f"{base}_heatmap.png", hm_bytes.getvalue())
+    zip_buf.seek(0)
+    dl_col1, dl_col2 = st.columns(2)
+    with dl_col1:
+        st.download_button(
+            "Download all as CSV",
+            data=buf_csv.getvalue(),
+            file_name="s2f_batch_results.csv",
+            mime="text/csv",
+            key="download_batch_csv",
+            icon=":material/download:",
+        )
+    with dl_col2:
+        st.download_button(
+            "Download all heatmaps",
+            data=zip_buf.getvalue(),
+            file_name="s2f_batch_heatmaps.zip",
+            mime="application/zip",
+            key="download_batch_heatmaps",
+            icon=":material/image:",
+        )
 
 
 # Distinct colors for each region (RGB - heatmap_rgb is RGB)
@@ -508,7 +638,7 @@ def _add_cell_contour_to_fig(fig_pl, cell_mask, row=1, col=2):
 
 
 def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, key_img, download_key_suffix="",
-                         colormap_name="Jet", display_mode="Auto", measure_region_dialog=None, auto_cell_boundary=True,
+                         colormap_name="Jet", display_mode="Default", measure_region_dialog=None, auto_cell_boundary=True,
                          cell_mask=None):
     """
     Render prediction result: plot, metrics, expander, and download/measure buttons.
@@ -582,6 +712,34 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
             st.metric("Heatmap max", f"{np.max(raw_heatmap):.4f}", help="Peak force intensity in the map")
         with col4:
             st.metric("Heatmap mean", f"{np.mean(raw_heatmap):.4f}", help="Average force intensity (full FOV)")
+
+    # Statistics panel (mean, std, percentiles, histogram)
+    with st.expander("Statistics"):
+        vals = raw_heatmap[cell_mask > 0] if (cell_mask is not None and np.any(cell_mask > 0) and use_cell_metrics) else raw_heatmap.flatten()
+        if len(vals) > 0:
+            st.markdown("**Summary**")
+            stat_col1, stat_col2, stat_col3 = st.columns(3)
+            with stat_col1:
+                st.metric("Mean", f"{float(np.mean(vals)):.4f}")
+                st.metric("Std", f"{float(np.std(vals)):.4f}")
+            with stat_col2:
+                p25, p50, p75 = float(np.percentile(vals, 25)), float(np.percentile(vals, 50)), float(np.percentile(vals, 75))
+                st.metric("P25", f"{p25:.4f}")
+                st.metric("P50 (median)", f"{p50:.4f}")
+                st.metric("P75", f"{p75:.4f}")
+            with stat_col3:
+                p90 = float(np.percentile(vals, 90))
+                st.metric("P90", f"{p90:.4f}")
+            st.markdown("**Histogram**")
+            hist_fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color="#0d9488")])
+            hist_fig.update_layout(
+                height=220, margin=dict(l=40, r=20, t=20, b=40),
+                xaxis_title="Force value", yaxis_title="Count",
+                showlegend=False,
+            )
+            st.plotly_chart(hist_fig, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.caption("No nonzero values to compute statistics.")
 
     with st.expander("How to read the results"):
         if use_cell_metrics:

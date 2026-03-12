@@ -21,14 +21,12 @@ def cv_colormap_to_plotly_colorscale(colormap_name, n_samples=None):
 
 def apply_display_scale(heatmap, mode, min_percentile=0, max_percentile=100, clip_min=0, clip_max=1):
     """
-    Apply display scaling (Fiji ImageJ B&C style). Display only—does not change underlying values.
-    - Full: use 0–1 range as-is (clip values outside)
-    - Percentile: map data at min_percentile..max_percentile to 0..1 (values outside clipped).
-    - Rescale: map [clip_min, clip_max] to [0, 1]; values outside → black/white. Stretches range for contrast.
-    - Clip: clip values to [clip_min, clip_max], display with original data scale (no stretching).
-    - Filter: discard values outside [clip_min, clip_max] (black); only values in range show color.
+    Apply display scaling (Fiji/ImageJ style). Display only—does not change underlying values.
+    - Default: full 0–1 range as-is.
+    - Percentile: map min..max percentiles to 0..1.
+    - Range: show only values in [clip_min, clip_max]; others hidden (black).
     """
-    if mode == "Full":
+    if mode == "Default" or mode == "Auto" or mode == "Full":
         return np.clip(heatmap, 0, 1).astype(np.float32)
     if mode == "Percentile":
         pmin = float(np.percentile(heatmap, min_percentile))
@@ -37,25 +35,7 @@ def apply_display_scale(heatmap, mode, min_percentile=0, max_percentile=100, cli
             out = (heatmap.astype(np.float32) - pmin) / (pmax - pmin)
             return np.clip(out, 0, 1).astype(np.float32)
         return np.clip(heatmap, 0, 1).astype(np.float32)
-    if mode == "Rescale":
-        vmin, vmax = float(clip_min), float(clip_max)
-        if vmax > vmin:
-            out = (heatmap.astype(np.float32) - vmin) / (vmax - vmin)
-            return np.clip(out, 0, 1).astype(np.float32)
-        return np.clip(heatmap, 0, 1).astype(np.float32)
-    if mode == "Clip":
-        vmin, vmax = float(clip_min), float(clip_max)
-        if vmax > vmin:
-            h = np.clip(heatmap.astype(np.float32), vmin, vmax)
-            dmin, dmax = float(np.min(heatmap)), float(np.max(heatmap))
-            if dmax > dmin:
-                out = (h - dmin) / (dmax - dmin)
-                return np.clip(out, 0, 1).astype(np.float32)
-            return np.clip(h, 0, 1).astype(np.float32)
-        return np.clip(heatmap, 0, 1).astype(np.float32)
-    if mode == "Threshold":
-        mode = "Filter"  # backward compat
-    if mode == "Filter":
+    if mode == "Range" or mode == "Filter" or mode == "Threshold":
         vmin, vmax = float(clip_min), float(clip_max)
         if vmax > vmin:
             h = heatmap.astype(np.float32)

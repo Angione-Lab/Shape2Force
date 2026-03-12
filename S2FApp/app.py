@@ -16,6 +16,7 @@ if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
 from config.constants import (
+    BATCH_MAX_IMAGES,
     COLORMAPS,
     DEFAULT_SUBSTRATE,
     MODEL_TYPE_LABELS,
@@ -29,6 +30,7 @@ from utils.display import apply_display_scale
 from ui.components import (
     build_original_vals,
     build_cell_vals,
+    render_batch_results,
     render_result_display,
     render_region_canvas,
     render_system_status,
@@ -49,7 +51,7 @@ if HAS_DRAWABLE_CANVAS and ST_DIALOG:
         if raw_heatmap is None:
             st.warning("No prediction available to measure.")
             return
-        display_mode = st.session_state.get("measure_display_mode", "Full")
+        display_mode = st.session_state.get("measure_display_mode", "Default")
         display_heatmap = apply_display_scale(
             raw_heatmap, display_mode,
             min_percentile=st.session_state.get("measure_min_percentile", 0),
@@ -121,6 +123,9 @@ def _inject_theme_css(theme):
 st.markdown("""
 <style>
 section[data-testid="stSidebar"] { width: 380px !important; }
+@media (max-width: 768px) {
+  section[data-testid="stSidebar"] { width: 100% !important; max-width: 100% !important; }
+}
 section[data-testid="stSidebar"] h2 {
   font-size: 1.25rem !important;
   font-weight: 600 !important;
@@ -233,13 +238,17 @@ with st.sidebar:
         help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
     )
 
-    st.markdown('<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: 0.5rem;">Heatmap display</p>', unsafe_allow_html=True)
+    batch_mode = st.toggle(
+        "Batch mode",
+        value=False,
+        help=f"Process up to {BATCH_MAX_IMAGES} images at once. Upload multiple files or select multiple examples.",
+    )
+
     display_mode = st.radio(
-        "Mode",
-        ["Full", "Percentile", "Rescale", "Clip", "Filter"],
-        help="Full: 0–1 as-is. Percentile: min/max percentiles. Rescale: stretch range to colors. Clip: clip, keep scale. Filter: show only in range.",
+        "Heatmap display",
+        ["Default", "Percentile", "Range"],
         horizontal=True,
-        label_visibility="collapsed",
+        help="Default: full 0–1 range. Percentile: map a percentile range to improve contrast when few bright pixels dominate. Range: show only values in [min, max]; others hidden (black).",
     )
     min_percentile, max_percentile = 0, 100
     clip_min, clip_max = 0.0, 1.0
@@ -252,14 +261,14 @@ with st.sidebar:
         if min_percentile >= max_percentile:
             st.warning("Min percentile must be less than max. Using min=0, max=100.")
             min_percentile, max_percentile = 0, 100
-    elif display_mode in ("Rescale", "Clip", "Filter"):
+    elif display_mode == "Range":
         col_cmin, col_cmax = st.columns(2)
         with col_cmin:
-            clip_min = st.number_input("Min", value=0.0, min_value=None, max_value=None, step=0.01, format="%.3f",
-                                       help="Rescale: below → black. Clip: clamp to min. Filter: below → discarded.")
+            clip_min = st.number_input("Min", value=0.0, min_value=0.0, max_value=1.0, step=0.01, format="%.3f",
+                                       help="Values below this range → hidden (black)")
         with col_cmax:
-            clip_max = st.number_input("Max", value=1.0, min_value=None, max_value=None, step=0.01, format="%.3f",
-                                       help="Rescale: above → white. Clip: clamp to max. Filter: above → discarded.")
+            clip_max = st.number_input("Max", value=1.0, min_value=0.0, max_value=1.0, step=0.01, format="%.3f",
+                                       help="Values above this range → hidden (black)")
         if clip_min >= clip_max:
             st.warning("Min must be less than max. Using min=0, max=1.")
             clip_min, clip_max = 0.0, 1.0
@@ -275,44 +284,93 @@ with st.sidebar:
 # Main area: image input
 img_source = st.radio("Image source", ["Upload", "Example"], horizontal=True, label_visibility="collapsed")
 img = None
+imgs_batch = []  # list of (img, key_img) for batch mode
 uploaded = None
+uploaded_list = []
 selected_sample = None
+selected_samples = []
 
-if img_source == "Upload":
-    uploaded = st.file_uploader(
-        "Upload bright-field image",
-        type=["tif", "tiff", "png", "jpg", "jpeg"],
-        help="Bright-field microscopy image of a cell or spheroid on a substrate (grayscale or RGB).",
-    )
-    if uploaded:
-        bytes_data = uploaded.read()
-        nparr = np.frombuffer(bytes_data, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-        uploaded.seek(0)
-else:
-    sample_folder = get_sample_folder(S2F_ROOT, model_type)
-    sample_files = list_files_in_folder(sample_folder, SAMPLE_EXTENSIONS)
-    sample_subfolder_name = model_subfolder(model_type)
-    if sample_files:
-        selected_sample = st.selectbox(
-            f"Select example image (from `samples/{sample_subfolder_name}/`)",
-            sample_files,
-            format_func=lambda x: x,
-            key=f"sample_{model_type}",
+if batch_mode:
+    # Batch mode: multiple images (max BATCH_MAX_IMAGES)
+    if img_source == "Upload":
+        uploaded_list = st.file_uploader(
+            "Upload bright-field images",
+            type=["tif", "tiff", "png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            help=f"Select up to {BATCH_MAX_IMAGES} images. Bright-field microscopy (grayscale or RGB).",
         )
-        if selected_sample:
-            sample_path = os.path.join(sample_folder, selected_sample)
-            img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
-        # Cached thumbnails
-        thumbnails = get_cached_sample_thumbnails(model_type, sample_folder, sample_files)
-        n_cols = min(5, len(thumbnails))
-        cols = st.columns(n_cols)
-        for i, (fname, sample_img) in enumerate(thumbnails):
-            if sample_img is not None:
-                with cols[i % n_cols]:
-                    st.image(sample_img, caption=fname, width=120)
+        if uploaded_list:
+            uploaded_list = uploaded_list[:BATCH_MAX_IMAGES]
+            for u in uploaded_list:
+                bytes_data = u.read()
+                nparr = np.frombuffer(bytes_data, np.uint8)
+                decoded = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+                if decoded is not None:
+                    imgs_batch.append((decoded, u.name))
+                u.seek(0)
     else:
-        st.info(f"No example images in samples/{sample_subfolder_name}/. Add images or use Upload.")
+        sample_folder = get_sample_folder(S2F_ROOT, model_type)
+        sample_files = list_files_in_folder(sample_folder, SAMPLE_EXTENSIONS)
+        sample_subfolder_name = model_subfolder(model_type)
+        if sample_files:
+            selected_samples = st.multiselect(
+                f"Select example images (max {BATCH_MAX_IMAGES})",
+                sample_files,
+                default=None,
+                max_selections=BATCH_MAX_IMAGES,
+                key=f"sample_batch_{model_type}",
+            )
+            if selected_samples:
+                for fname in selected_samples[:BATCH_MAX_IMAGES]:
+                    sample_path = os.path.join(sample_folder, fname)
+                    loaded = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
+                    if loaded is not None:
+                        imgs_batch.append((loaded, fname))
+            thumbnails = get_cached_sample_thumbnails(model_type, sample_folder, sample_files)
+            n_cols = min(5, len(thumbnails))
+            cols = st.columns(n_cols)
+            for i, (fname, sample_img) in enumerate(thumbnails):
+                if sample_img is not None:
+                    with cols[i % n_cols]:
+                        st.image(sample_img, caption=fname, width=120)
+        else:
+            st.info(f"No example images in samples/{sample_subfolder_name}/. Add images or use Upload.")
+else:
+    # Single image mode
+    if img_source == "Upload":
+        uploaded = st.file_uploader(
+            "Upload bright-field image",
+            type=["tif", "tiff", "png", "jpg", "jpeg"],
+            help="Bright-field microscopy image of a cell or spheroid on a substrate (grayscale or RGB).",
+        )
+        if uploaded:
+            bytes_data = uploaded.read()
+            nparr = np.frombuffer(bytes_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+            uploaded.seek(0)
+    else:
+        sample_folder = get_sample_folder(S2F_ROOT, model_type)
+        sample_files = list_files_in_folder(sample_folder, SAMPLE_EXTENSIONS)
+        sample_subfolder_name = model_subfolder(model_type)
+        if sample_files:
+            selected_sample = st.selectbox(
+                f"Select example image (from `samples/{sample_subfolder_name}/`)",
+                sample_files,
+                format_func=lambda x: x,
+                key=f"sample_{model_type}",
+            )
+            if selected_sample:
+                sample_path = os.path.join(sample_folder, selected_sample)
+                img = cv2.imread(sample_path, cv2.IMREAD_GRAYSCALE)
+            thumbnails = get_cached_sample_thumbnails(model_type, sample_folder, sample_files)
+            n_cols = min(5, len(thumbnails))
+            cols = st.columns(n_cols)
+            for i, (fname, sample_img) in enumerate(thumbnails):
+                if sample_img is not None:
+                    with cols[i % n_cols]:
+                        st.image(sample_img, caption=fname, width=120)
+        else:
+            st.info(f"No example images in samples/{sample_subfolder_name}/. Add images or use Upload.")
 
 col_btn, col_model, col_path = st.columns([1, 1, 3])
 with col_btn:
@@ -322,16 +380,24 @@ with col_model:
 with col_path:
     ckp_path = f"ckp/{ckp_subfolder_name}/{checkpoint}" if checkpoint else f"ckp/{ckp_subfolder_name}/"
     st.markdown(f"<span style='display: inline-flex; align-items: center; height: 38px;'>Checkpoint: <code>{ckp_path}</code></span>", unsafe_allow_html=True)
+
 has_image = img is not None
+has_batch = len(imgs_batch) > 0
 
 if "prediction_result" not in st.session_state:
     st.session_state["prediction_result"] = None
+if "batch_results" not in st.session_state:
+    st.session_state["batch_results"] = None
+if not batch_mode:
+    st.session_state["batch_results"] = None  # Clear when switching to single mode
 
-just_ran = run and checkpoint and has_image
-cached = st.session_state["prediction_result"]
+# Single-image keys (for non-batch)
 key_img = (uploaded.name if uploaded else None) if img_source == "Upload" else selected_sample
 current_key = (model_type, checkpoint, key_img)
-has_cached = cached is not None and cached.get("cache_key") == current_key
+cached = st.session_state["prediction_result"]
+has_cached = cached is not None and cached.get("cache_key") == current_key and not batch_mode
+just_ran = run and checkpoint and has_image and not batch_mode
+just_ran_batch = run and checkpoint and has_batch and batch_mode
 
 
 def get_or_create_predictor(model_type, checkpoint, ckp_folder):
@@ -348,7 +414,62 @@ def get_or_create_predictor(model_type, checkpoint, ckp_folder):
     return st.session_state["predictor"]
 
 
-if just_ran:
+if just_ran_batch:
+    st.session_state["prediction_result"] = None
+    st.session_state["batch_results"] = None
+    with st.spinner("Loading model and predicting..."):
+        try:
+            predictor = get_or_create_predictor(model_type, checkpoint, ckp_folder)
+            sub_val = substrate_val if model_type == "single_cell" and not use_manual else DEFAULT_SUBSTRATE
+            batch_results = []
+            progress_bar = st.progress(0, text="Processing images...")
+            for idx, (img_b, key_b) in enumerate(imgs_batch):
+                progress_bar.progress((idx + 1) / len(imgs_batch), text=f"Processing {key_b}...")
+                heatmap, force, pixel_sum = predictor.predict(
+                    image_array=img_b,
+                    substrate=sub_val,
+                    substrate_config=substrate_config if model_type == "single_cell" else None,
+                )
+                cell_mask = estimate_cell_mask(heatmap) if auto_cell_boundary else None
+                batch_results.append({
+                    "img": img_b.copy(),
+                    "heatmap": heatmap.copy(),
+                    "force": force,
+                    "pixel_sum": pixel_sum,
+                    "key_img": key_b,
+                    "cell_mask": cell_mask,
+                })
+            progress_bar.empty()
+            st.session_state["batch_results"] = batch_results
+            st.success(f"Prediction complete for {len(batch_results)} image(s)!")
+            render_batch_results(
+                batch_results,
+                colormap_name=colormap_name,
+                display_mode=display_mode,
+                min_percentile=min_percentile,
+                max_percentile=max_percentile,
+                clip_min=clip_min,
+                clip_max=clip_max,
+                auto_cell_boundary=auto_cell_boundary,
+            )
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
+            st.code(traceback.format_exc())
+
+elif batch_mode and st.session_state.get("batch_results"):
+    st.success("Prediction complete!")
+    render_batch_results(
+        st.session_state["batch_results"],
+        colormap_name=colormap_name,
+        display_mode=display_mode,
+        min_percentile=min_percentile,
+        max_percentile=max_percentile,
+        clip_min=clip_min,
+        clip_max=clip_max,
+        auto_cell_boundary=auto_cell_boundary,
+    )
+
+elif just_ran:
     st.session_state["prediction_result"] = None
     with st.spinner("Loading model and predicting..."):
         try:
@@ -432,8 +553,10 @@ elif has_cached:
 
 elif run and not checkpoint:
     st.warning("Please add checkpoint files to the ckp/ folder and select one.")
-elif run and not has_image:
+elif run and not has_image and not has_batch:
     st.warning("Please upload an image or select an example.")
+elif run and batch_mode and not has_batch:
+    st.warning(f"Please upload or select 1–{BATCH_MAX_IMAGES} images for batch processing.")
 
 st.sidebar.divider()
 render_system_status()
