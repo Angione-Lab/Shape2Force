@@ -121,12 +121,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(f"""
-<div class="footer-citation">
-    <span>If you find this software useful, please cite: {CITATION}</span>
-</div>
-""", unsafe_allow_html=True)
-
 # Folders
 ckp_base = get_ckp_base(S2F_ROOT)
 
@@ -561,3 +555,9 @@ elif run and batch_mode and not has_batch:
 
 st.sidebar.markdown('<div class="sidebar-section"><span class="section-title"></span></div>', unsafe_allow_html=True)
 render_system_status()
+
+st.markdown(f"""
+<div class="footer-citation">
+    <span>If you find this software useful, please cite: {CITATION}</span>
+</div>
+""", unsafe_allow_html=True)

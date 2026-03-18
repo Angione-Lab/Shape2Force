@@ -16,7 +16,7 @@ html, body, .stApp {
     background: linear-gradient(135deg, var(--s2f-primary) 0%, var(--s2f-primary-dark) 40%, var(--s2f-primary-darker) 100%);
     padding: 1.1rem 1.5rem 1rem;
     border-radius: 12px;
-    margin-bottom: 1.2rem;
+    margin-bottom: 0.5rem;
     color: white;
     position: relative;
     overflow: hidden;
