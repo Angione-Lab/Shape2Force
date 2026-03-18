@@ -5,8 +5,10 @@ import os
 import sys
 import traceback
 
+# Suppress OpenCV verbose logging (cv2.utils.logging not reliably available in all builds)
+os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
+
 import cv2
-cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
 
 import numpy as np
 import streamlit as st
