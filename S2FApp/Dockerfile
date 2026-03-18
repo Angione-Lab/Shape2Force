@@ -17,7 +17,9 @@ COPY requirements.txt requirements-docker.txt ./
 
 # Install Python dependencies - CPU-only PyTorch to fit Space memory limits (avoids OOM)
 # PyTorch 2.2 + torchvision 0.17 (CPU) - match requirements.txt torch>=2.0
-RUN pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu && \
+# Install numpy first with compatible version (<2) so torch.from_numpy works
+RUN pip install --no-cache-dir "numpy>=1.20.0,<2.0" && \
+    pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements-docker.txt
 
 # Copy app code (chown for HF Spaces permissions)

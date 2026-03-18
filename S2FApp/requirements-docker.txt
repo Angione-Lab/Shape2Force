@@ -1,5 +1,6 @@
 # Shape2Force App - deps for Docker (torch/torchvision installed separately from CPU wheel)
-numpy>=1.20.0
+# Pin numpy<2 for PyTorch 2.2 compatibility (torch.from_numpy fails with numpy 2.x)
+numpy>=1.20.0,<2.0
 opencv-python>=4.5.0
 scipy>=1.7.0
 scikit-image>=0.19.0
