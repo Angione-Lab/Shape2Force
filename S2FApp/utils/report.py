@@ -48,27 +48,34 @@ def _pdf_image_layout(page_w_pt, page_h_pt, margin=72, n_images=2):
     }
 
 
-def heatmap_to_rgb(scaled_heatmap, colormap_name="Jet"):
-    """Convert scaled heatmap (float 0-1) to RGB array using the given colormap."""
-    heatmap_uint8 = (np.clip(scaled_heatmap, 0, 1) * 255).astype(np.uint8)
+def heatmap_to_rgb(scaled_heatmap, colormap_name="Jet", zmin=None, zmax=None):
+    """Convert scaled heatmap to RGB array using the given colormap.
+    If zmin, zmax are provided (e.g. for Range mode), map [zmin,zmax] to 0-1 for coloring."""
+    arr = np.asarray(scaled_heatmap, dtype=np.float32)
+    if zmin is not None and zmax is not None and zmax > zmin:
+        arr = np.clip((arr - zmin) / (zmax - zmin), 0, 1)
+    else:
+        arr = np.clip(arr, 0, 1)
+    heatmap_uint8 = (arr * 255).astype(np.uint8)
     cv2_colormap = COLORMAPS.get(colormap_name, cv2.COLORMAP_JET)
     heatmap_rgb = cv2.cvtColor(cv2.applyColorMap(heatmap_uint8, cv2_colormap), cv2.COLOR_BGR2RGB)
     return heatmap_rgb
 
 
-def heatmap_to_rgb_with_contour(scaled_heatmap, colormap_name="Jet", cell_mask=None):
+def heatmap_to_rgb_with_contour(scaled_heatmap, colormap_name="Jet", cell_mask=None, zmin=None, zmax=None):
     """Convert heatmap to RGB, optionally drawing red cell contour. Mask must match heatmap shape."""
-    heatmap_rgb = heatmap_to_rgb(scaled_heatmap, colormap_name)
+    heatmap_rgb = heatmap_to_rgb(scaled_heatmap, colormap_name, zmin=zmin, zmax=zmax)
     if cell_mask is not None and np.any(cell_mask > 0):
         contours, _ = cv2.findContours(cell_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
-            cv2.drawContours(heatmap_rgb, contours, -1, (255, 0, 0), 2)
+            cv2.drawContours(heatmap_rgb, contours, -1, (255, 0, 0), 5)
     return heatmap_rgb
 
 
-def heatmap_to_png_bytes(scaled_heatmap, colormap_name="Jet", cell_mask=None):
-    """Convert scaled heatmap (float 0-1) to PNG bytes buffer. Optionally draw red cell contour."""
-    heatmap_rgb = heatmap_to_rgb_with_contour(scaled_heatmap, colormap_name, cell_mask)
+def heatmap_to_png_bytes(scaled_heatmap, colormap_name="Jet", cell_mask=None, zmin=None, zmax=None):
+    """Convert scaled heatmap to PNG bytes buffer. Optionally draw red cell contour.
+    If zmin, zmax provided (Range mode), map that range to full colormap."""
+    heatmap_rgb = heatmap_to_rgb_with_contour(scaled_heatmap, colormap_name, cell_mask, zmin=zmin, zmax=zmax)
     buf = io.BytesIO()
     Image.fromarray(heatmap_rgb).save(buf, format="PNG")
     buf.seek(0)
@@ -76,7 +83,7 @@ def heatmap_to_png_bytes(scaled_heatmap, colormap_name="Jet", cell_mask=None):
 
 
 def create_pdf_report(img, display_heatmap, raw_heatmap, pixel_sum, force, base_name, colormap_name="Jet",
-                      cell_mask=None, cell_pixel_sum=None, cell_force=None, cell_mean=None):
+                      cell_mask=None, cell_pixel_sum=None, cell_force=None, cell_mean=None, zmin=None, zmax=None):
     """Create a PDF report with input image, heatmap, and metrics."""
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
@@ -108,7 +115,7 @@ def create_pdf_report(img, display_heatmap, raw_heatmap, pixel_sum, force, base_
     bf_label_w = c.stringWidth("Bright-field", "Helvetica", 9)
     c.drawString(bf_x + (img_w - bf_label_w) / 2, img_bottom - 14, "Bright-field")
 
-    heatmap_rgb = heatmap_to_rgb_with_contour(display_heatmap, colormap_name, cell_mask)
+    heatmap_rgb = heatmap_to_rgb_with_contour(display_heatmap, colormap_name, cell_mask, zmin=zmin, zmax=zmax)
     hm_buf = io.BytesIO()
     Image.fromarray(heatmap_rgb).save(hm_buf, format="PNG")
     hm_buf.seek(0)

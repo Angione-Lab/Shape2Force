@@ -177,3 +177,50 @@ class S2FPredictor:
         pixel_sum = float(np.sum(heatmap))
 
         return heatmap, force, pixel_sum
+
+    def predict_batch(self, images, substrate=None, substrate_config=None):
+        """
+        Run prediction on a batch of images (single forward pass).
+
+        Args:
+            images: List of (img_array, key) or list of img arrays. img_array: (H, W) or (H, W, C).
+            substrate: Substrate name for single-cell mode (same for all images).
+            substrate_config: Optional dict with 'pixelsize' and 'young' (same for all).
+
+        Returns:
+            List of (heatmap, force, pixel_sum) tuples.
+        """
+        imgs = []
+        for item in images:
+            img = item[0] if isinstance(item, tuple) else item
+            img = np.asarray(img, dtype=np.float32)
+            if img.ndim == 3:
+                img = img[:, :, 0] if img.shape[-1] >= 1 else img
+            if img.max() > 1.0:
+                img = img / 255.0
+            img = cv2.resize(img, (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE))
+            imgs.append(img)
+        x = torch.from_numpy(np.stack(imgs)).float().unsqueeze(1).to(self.device)  # [B, 1, H, W]
+
+        if self.model_type == "single_cell" and self.norm_params is not None:
+            sub = substrate if substrate is not None else DEFAULT_SUBSTRATE
+            settings_ch = create_settings_channels_single(
+                sub, self.device, x.shape[2], x.shape[3],
+                config_path=self.config_path, substrate_config=substrate_config
+            )
+            settings_batch = settings_ch.expand(x.shape[0], -1, -1, -1)
+            x = torch.cat([x, settings_batch], dim=1)  # [B, 3, H, W]
+
+        with torch.no_grad():
+            pred = self.generator(x)
+
+        if self._use_tanh_output:
+            pred = (pred + 1.0) / 2.0
+
+        results = []
+        for i in range(pred.shape[0]):
+            heatmap = pred[i, 0].cpu().numpy()
+            force = sum_force_map(pred[i : i + 1]).item()
+            pixel_sum = float(np.sum(heatmap))
+            results.append((heatmap, force, pixel_sum))
+        return results

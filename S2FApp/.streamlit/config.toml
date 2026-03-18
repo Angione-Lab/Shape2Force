@@ -1,3 +1,13 @@
 [server]
 # Required for file uploads on Hugging Face Spaces (iframe blocks XSRF cookies)
 enableXsrfProtection = false
+
+[theme]
+primaryColor = "#0d9488"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8fafc"
+textColor = "#1e293b"
+font = "sans serif"
+
+[logger]
+level = "error"

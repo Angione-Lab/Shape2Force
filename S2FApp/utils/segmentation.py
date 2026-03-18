@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from skimage.filters import threshold_otsu
-from skimage.morphology import binary_closing, binary_opening, binary_dilation, remove_small_objects, disk
+from skimage.morphology import closing, opening, dilation, remove_small_objects, disk
 from skimage.measure import label, regionprops
 
 
@@ -37,9 +37,9 @@ def estimate_cell_mask(heatmap, sigma=2, min_size=200, exclude_full_image=True,
     mask = (smoothed > thresh).astype(np.uint8)
 
     # Morphological cleanup
-    mask = binary_closing(mask, disk(5)).astype(np.uint8)
-    mask = binary_opening(mask, disk(3)).astype(np.uint8)
-    mask = remove_small_objects(mask.astype(bool), min_size=min_size).astype(np.uint8)
+    mask = closing(mask, disk(5)).astype(np.uint8)
+    mask = opening(mask, disk(3)).astype(np.uint8)
+    mask = remove_small_objects(mask.astype(bool), max_size=min_size - 1).astype(np.uint8)
 
     # Select component: second largest if largest is whole image
     labeled = label(mask)
@@ -60,6 +60,6 @@ def estimate_cell_mask(heatmap, sigma=2, min_size=200, exclude_full_image=True,
 
     # Dilate to include surrounding pixels
     if dilate_radius > 0:
-        mask = binary_dilation(mask, disk(dilate_radius)).astype(np.uint8)
+        mask = dilation(mask, disk(dilate_radius)).astype(np.uint8)
 
     return mask

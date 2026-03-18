@@ -13,15 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY requirements.txt requirements-docker.txt ./
 
 # Install Python dependencies - CPU-only PyTorch to fit Space memory limits (avoids OOM)
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir numpy opencv-python scipy scikit-image streamlit matplotlib Pillow plotly huggingface_hub reportlab streamlit-drawable-canvas-fix psutil
+# PyTorch 2.2 + torchvision 0.17 (CPU) - match requirements.txt torch>=2.0
+RUN pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements-docker.txt
 
 # Copy app code (chown for HF Spaces permissions)
 COPY --chown=user:user app.py predictor.py download_ckp.py ./
 COPY --chown=user:user .streamlit/ .streamlit/
+COPY --chown=user:user static/ static/
 COPY --chown=user:user models/ models/
 COPY --chown=user:user ui/ ui/
 COPY --chown=user:user utils/ utils/
