@@ -98,22 +98,21 @@ def make_annotated_heatmap_multi_regions(heatmap_rgb, masks, labels, cell_mask=N
 
 
 def add_cell_contour_to_fig(fig_pl, cell_mask, row=1, col=2):
-    """Add red contour overlay to Plotly heatmap subplot."""
+    """Add red contour overlay to Plotly heatmap subplot. Draws all contours (handles multiple disconnected regions)."""
     if cell_mask is None or not np.any(cell_mask > 0):
         return
     contours, _ = cv2.findContours(cell_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return
-    # Use largest contour
-    cnt = max(contours, key=cv2.contourArea)
-    pts = cnt.squeeze()
-    if pts.ndim == 1:
-        pts = pts.reshape(1, 2)
-    x, y = pts[:, 0].tolist(), pts[:, 1].tolist()
-    if x[0] != x[-1] or y[0] != y[-1]:
-        x.append(x[0])
-        y.append(y[0])
-    fig_pl.add_trace(
-        go.Scatter(x=x, y=y, mode="lines", line=dict(color="red", width=4), showlegend=False),
-        row=row, col=col
-    )
+    for cnt in contours:
+        pts = cnt.squeeze()
+        if pts.ndim == 1:
+            pts = pts.reshape(1, 2)
+        x, y = pts[:, 0].tolist(), pts[:, 1].tolist()
+        if x[0] != x[-1] or y[0] != y[-1]:
+            x.append(x[0])
+            y.append(y[0])
+        fig_pl.add_trace(
+            go.Scatter(x=x, y=y, mode="lines", line=dict(color="red", width=4), showlegend=False),
+            row=row, col=col
+        )
