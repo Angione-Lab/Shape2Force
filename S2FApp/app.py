@@ -462,6 +462,7 @@ if just_ran_batch:
     st.session_state["prediction_result"] = None
     st.session_state["batch_results"] = None
     with st.spinner("Loading model and predicting..."):
+        progress_bar = None
         try:
             predictor = _load_predictor(model_type, checkpoint, ckp_folder)
             sub_val = substrate_val if model_type == "single_cell" and not use_manual else DEFAULT_SUBSTRATE
@@ -490,6 +491,7 @@ if just_ran_batch:
                 for (img_b, key_b), (heatmap, force, pixel_sum) in zip(imgs_batch, pred_results)
             ]
             st.session_state["batch_results"] = batch_results
+            progress_bar.empty()
             st.success(f"Prediction complete for {len(batch_results)} image(s)!")
             render_batch_results(
                 batch_results,
@@ -503,6 +505,8 @@ if just_ran_batch:
                 clip_bounds=clip_bounds,
             )
         except Exception as e:
+            if progress_bar is not None:
+                progress_bar.empty()
             st.error(f"Prediction failed: {e}")
             st.code(traceback.format_exc())
 

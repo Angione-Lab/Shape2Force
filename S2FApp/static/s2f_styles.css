@@ -409,10 +409,15 @@ div[data-testid="stHorizontalBlock"]:has([data-testid="stDownloadButton"]):has([
 /* === Selectbox, multiselect, toggle === */
 [data-testid="stSelectbox"] > div > div,
 [data-testid="stSelectbox"] input,
-[data-testid="stMultiSelect"] > div > div,
-[data-testid="stMultiSelect"] input {
+[data-testid="stMultiSelect"] > div > div {
     color: #1e293b !important;
     background-color: #ffffff !important;
+}
+/* Multiselect input: transparent so it doesn't show as a white block before the tags */
+[data-testid="stMultiSelect"] input {
+    background-color: transparent !important;
+    color: #1e293b !important;
+    min-width: 2ch !important;
 }
 [data-testid="stSelectbox"] > div > div,
 [data-testid="stMultiSelect"] > div > div {
