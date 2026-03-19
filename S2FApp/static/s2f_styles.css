@@ -11,6 +11,26 @@ html, body, .stApp {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
+/* === Scroll lock for embedded (HF Spaces iframe): prevent parent scroll, main content scrolls internally === */
+html, body {
+    height: 100% !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+}
+.stApp {
+    height: 100vh !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+/* Flex wrapper for sidebar + main */
+.stApp > div {
+    display: flex !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}
+
 /* === Modern background patterns === */
 .stApp {
     background-color: #fafbfc !important;
@@ -106,6 +126,7 @@ section[data-testid="stSidebar"] {
     max-height: 100vh !important;
     overflow-x: hidden !important;
     overflow-y: auto !important;
+    scrollbar-gutter: stable !important;
     background:
         linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%),
         /* Subtle vertical rhythm */
@@ -121,7 +142,9 @@ section[data-testid="stSidebar"] {
 @media (max-width: 768px) {
     section[data-testid="stSidebar"] { width: 100% !important; max-width: 100% !important; }
     [data-testid="stAppViewContainer"],
-    .appview-container .main { margin-left: 0 !important; }
+    .appview-container .main {
+        margin-left: 0 !important;
+    }
 }
 section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
 section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
@@ -528,13 +551,19 @@ hr { border-color: #cbd5e1 !important; opacity: 0.7; }
     text-align: center;
     line-height: 1.4;
 }
-/* Main content: offset for fixed sidebar so it doesn't overlap */
+/* Main content: offset for fixed sidebar, scroll internally (fixes HF iframe embed) */
 [data-testid="stAppViewContainer"],
 .appview-container .main {
     margin-left: 360px !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    scrollbar-gutter: stable !important;
+    -webkit-overflow-scrolling: touch !important;
 }
 .block-container {
-    padding-bottom: 2.5rem !important;
+    padding-bottom: 3rem !important;
     max-width: 1050px !important;
 }
 section[data-testid="stSidebar"] > div:first-child {
