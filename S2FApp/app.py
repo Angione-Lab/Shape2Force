@@ -18,6 +18,7 @@ if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
 from config.constants import (
+    BATCH_INFERENCE_SIZE,
     BATCH_MAX_IMAGES,
     COLORMAPS,
     DEFAULT_SUBSTRATE,
@@ -464,11 +465,19 @@ if just_ran_batch:
         try:
             predictor = _load_predictor(model_type, checkpoint, ckp_folder)
             sub_val = substrate_val if model_type == "single_cell" and not use_manual else DEFAULT_SUBSTRATE
-            pred_results = predictor.predict_batch(
-                imgs_batch,
-                substrate=sub_val,
-                substrate_config=substrate_config if model_type == "single_cell" else None,
-            )
+            n_images = len(imgs_batch)
+            progress_bar = st.progress(0, text=f"Predicting 0 / {n_images} images")
+            pred_results = []
+            for start in range(0, n_images, BATCH_INFERENCE_SIZE):
+                chunk = imgs_batch[start : start + BATCH_INFERENCE_SIZE]
+                chunk_results = predictor.predict_batch(
+                    chunk,
+                    substrate=sub_val,
+                    substrate_config=substrate_config if model_type == "single_cell" else None,
+                )
+                pred_results.extend(chunk_results)
+                progress_bar.progress(min(start + len(chunk), n_images) / n_images,
+                                     text=f"Predicting {len(pred_results)} / {n_images} images")
             batch_results = [
                 {
                     "img": img_b.copy(),

@@ -68,7 +68,7 @@ def heatmap_to_rgb_with_contour(scaled_heatmap, colormap_name="Jet", cell_mask=N
     if cell_mask is not None and np.any(cell_mask > 0):
         contours, _ = cv2.findContours(cell_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
-            cv2.drawContours(heatmap_rgb, contours, -1, (255, 0, 0), 5)
+            cv2.drawContours(heatmap_rgb, contours, -1, (255, 0, 0), 3)
     return heatmap_rgb
 
 

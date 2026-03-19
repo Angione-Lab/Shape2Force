@@ -76,7 +76,7 @@ def make_annotated_heatmap_multi_regions(heatmap_rgb, masks, labels, cell_mask=N
     annotated = heatmap_rgb.copy()
     if cell_mask is not None and np.any(cell_mask > 0):
         contours, _ = cv2.findContours(cell_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(annotated, contours, -1, (255, 0, 0), 5)
+        cv2.drawContours(annotated, contours, -1, (255, 0, 0), 3)
     for i, mask in enumerate(masks):
         color = _REGION_COLORS[i % len(_REGION_COLORS)]
         _draw_region_overlay(annotated, mask, color, fill_alpha, stroke_width=2)
@@ -113,6 +113,6 @@ def add_cell_contour_to_fig(fig_pl, cell_mask, row=1, col=2):
             x.append(x[0])
             y.append(y[0])
         fig_pl.add_trace(
-            go.Scatter(x=x, y=y, mode="lines", line=dict(color="red", width=4), showlegend=False),
+            go.Scatter(x=x, y=y, mode="lines", line=dict(color="red", width=3), showlegend=False),
             row=row, col=col
         )

@@ -13,6 +13,8 @@ DEFAULT_SUBSTRATE = "Fibroblasts_Fibronectin_6KPa"
 CANVAS_SIZE = 320
 SAMPLE_THUMBNAIL_LIMIT = 8
 BATCH_MAX_IMAGES = 5
+# Max images per model forward pass (avoids OOM on Hugging Face free tier)
+BATCH_INFERENCE_SIZE = 2
 COLORMAP_N_SAMPLES = 64
 
 # Model type labels

@@ -156,7 +156,7 @@ def compute_region_metrics(raw_heatmap, mask, original_vals=None):
     }
 
 
-def _draw_contour_on_image(img_rgb, mask, stroke_color=(255, 0, 0), stroke_width=5):
+def _draw_contour_on_image(img_rgb, mask, stroke_color=(255, 0, 0), stroke_width=3):
     """Draw contour from mask on RGB image. Resizes mask to match img if needed."""
     h, w = img_rgb.shape[:2]
     if mask.shape[:2] != (h, w):
@@ -304,7 +304,7 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
             st.caption("Bright-field")
             bf_display = bf_rgb.copy()
             if cell_mask is not None and np.any(cell_mask > 0):
-                bf_display = _draw_contour_on_image(bf_display, cell_mask, stroke_color=(255, 0, 0), stroke_width=5)
+                bf_display = _draw_contour_on_image(bf_display, cell_mask, stroke_color=(255, 0, 0), stroke_width=3)
             st.image(bf_display, width=CANVAS_SIZE)
     else:
         st.markdown("**Draw a region** on the heatmap.")
