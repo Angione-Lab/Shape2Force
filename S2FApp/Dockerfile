@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt requirements-docker.txt ./
 
 # Install Python dependencies - CPU-only PyTorch to fit Space memory limits (avoids OOM)
+# (psutil removed from requirements-docker.txt — optional CPU/RAM widget not used in app)
 # PyTorch 2.2 + torchvision 0.17 (CPU) - match requirements.txt torch>=2.0
 # Install numpy first with compatible version (<2) so torch.from_numpy works
 RUN pip install --no-cache-dir "numpy>=1.20.0,<2.0" && \

@@ -25,7 +25,6 @@ from config.constants import (
     MODEL_TYPE_LABELS,
     SAMPLE_EXTENSIONS,
     SAMPLE_THUMBNAIL_LIMIT,
-    THEMES,
 )
 from utils.paths import get_ckp_base, get_ckp_folder, get_sample_folder, list_files_in_folder, model_subfolder
 from utils.segmentation import estimate_cell_mask
@@ -37,7 +36,6 @@ from ui.components import (
     render_batch_results,
     render_result_display,
     render_region_canvas,
-    render_system_status,
     ST_DIALOG,
     HAS_DRAWABLE_CANVAS,
 )
@@ -46,6 +44,20 @@ CITATION = (
     "Lautaro Baro, Kaveh Shahhosseini, Amparo Andrés-Bordería, Claudio Angione, and Maria Angeles Juanes. "
     "<b>\"Shape-to-force (S2F): Predicting Cell Traction Forces from LabelFree Imaging\"</b>, 2026."
 )
+
+
+def _inference_cache_condition_key(model_type, use_manual, substrate_val, substrate_config):
+    """Hashable key for substrate / manual conditions so cache invalidates when single-cell inputs change."""
+    if model_type != "single_cell":
+        return None
+    if use_manual and substrate_config is not None:
+        return (
+            "manual",
+            round(float(substrate_config["pixelsize"]), 6),
+            round(float(substrate_config["young"]), 2),
+        )
+    return ("preset", str(substrate_val))
+
 
 # Measure tool dialog: defined early so it exists before render_result_display uses it
 if HAS_DRAWABLE_CANVAS and ST_DIALOG:
@@ -56,13 +68,16 @@ if HAS_DRAWABLE_CANVAS and ST_DIALOG:
             st.warning("No prediction available to measure.")
             return
         display_mode = st.session_state.get("measure_display_mode", "Default")
+        _m_clamp = st.session_state.get(
+            "measure_clamp_only", st.session_state.get("measure_clip_bounds", False)
+        )
         display_heatmap = apply_display_scale(
             raw_heatmap, display_mode,
             min_percentile=st.session_state.get("measure_min_percentile", 0),
             max_percentile=st.session_state.get("measure_max_percentile", 100),
             clip_min=st.session_state.get("measure_clip_min", 0),
             clip_max=st.session_state.get("measure_clip_max", 1),
-            clip_bounds=st.session_state.get("measure_clip_bounds", False),
+            clamp_only=_m_clamp,
         )
         bf_img = st.session_state.get("measure_bf_img")
         original_vals = st.session_state.get("measure_original_vals")
@@ -88,7 +103,7 @@ def _get_measure_dialog_fn():
 def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, colormap_name,
                                     display_mode, auto_cell_boundary, cell_mask=None,
                                     min_percentile=0, max_percentile=100, clip_min=0, clip_max=1,
-                                    clip_bounds=False):
+                                    clamp_only=False):
     """Populate session state for the measure tool. If cell_mask is None and auto_cell_boundary, computes it."""
     if cell_mask is None and auto_cell_boundary:
         cell_mask = estimate_cell_mask(heatmap)
@@ -98,7 +113,7 @@ def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, col
     st.session_state["measure_max_percentile"] = max_percentile
     st.session_state["measure_clip_min"] = clip_min
     st.session_state["measure_clip_max"] = clip_max
-    st.session_state["measure_clip_bounds"] = clip_bounds
+    st.session_state["measure_clamp_only"] = clamp_only
     st.session_state["measure_bf_img"] = img.copy()
     st.session_state["measure_input_filename"] = key_img or "image"
     st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force)
@@ -110,7 +125,10 @@ def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, col
 
 st.set_page_config(page_title="Shape2Force (S2F)", page_icon="🦠", layout="wide")
 
-st.markdown('<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">', unsafe_allow_html=True)
+st.markdown(
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">',
+    unsafe_allow_html=True,
+)
 
 _css_path = os.path.join(S2F_ROOT, "static", "s2f_styles.css")
 if os.path.exists(_css_path):
@@ -276,22 +294,47 @@ with st.sidebar:
         help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
     )
 
-    clip_min, clip_max = st.slider(
-        "Force Range",
-        min_value=0.0,
-        max_value=1.0,
-        value=(0.0, 1.0),
-        step=0.01,
-        format="%.2f",
-        help="Min–max range for force values. Values outside are set to 0; inside are rescaled so max shows as red.",
+    force_scale_mode = st.radio(
+        "Force scale",
+        ["Default", "Range"],
+        horizontal=True,
+        key="s2f_force_scale",
+        help="Default: display forces on the full 0–1 scale. Range: set a sub-range; values outside are zeroed and the rest is stretched to the colormap.",
     )
-    if clip_min >= clip_max:
+    if force_scale_mode == "Default":
         clip_min, clip_max = 0.0, 1.0
-    display_mode = "Range" if (clip_min != 0.0 or clip_max != 1.0) else "Default"
-    clip_bounds = False if display_mode == "Range" else True
+        display_mode = "Default"
+        clamp_only = True
+    else:
+        mn_col, mx_col = st.columns(2)
+        with mn_col:
+            clip_min = st.number_input(
+                "Min",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="s2f_clip_min",
+                help="Lower bound of the display range (0–1).",
+            )
+        with mx_col:
+            clip_max = st.number_input(
+                "Max",
+                min_value=0.0,
+                max_value=1.0,
+                value=1.0,
+                step=0.01,
+                format="%.2f",
+                key="s2f_clip_max",
+                help="Upper bound of the display range (0–1).",
+            )
+        if clip_min >= clip_max:
+            st.warning("Min must be less than max. Using 0.00–1.00 for display.")
+            clip_min, clip_max = 0.0, 1.0
+        display_mode = "Range"
+        clamp_only = False
     min_percentile, max_percentile = 0, 100
-
-    st.markdown('<div class="sidebar-section"><span class="section-title">Display</span></div>', unsafe_allow_html=True)
 
     cm_col_lbl, cm_col_sb = st.columns([1, 2])
     with cm_col_lbl:
@@ -305,35 +348,6 @@ with st.sidebar:
             help="Color scheme for the force map. Viridis is often preferred for accessibility.",
         )
 
-    th_col_lbl, th_col_sb = st.columns([1, 2])
-    with th_col_lbl:
-        st.markdown('<p class="selectbox-label">Theme</p>', unsafe_allow_html=True)
-    with th_col_sb:
-        theme_name = st.selectbox(
-            "Theme",
-            list(THEMES.keys()),
-            index=0,
-            key="s2f_theme",
-            label_visibility="collapsed",
-            help="App accent color theme.",
-        )
-
-
-# Inject theme CSS (main area so it applies globally)
-primary, primary_dark, primary_darker, primary_rgb = THEMES[theme_name]
-st.markdown(
-    f"""
-    <style>
-    :root {{
-        --s2f-primary: {primary};
-        --s2f-primary-dark: {primary_dark};
-        --s2f-primary-darker: {primary_darker};
-        --s2f-primary-rgb: {primary_rgb};
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 # Main area: image input
 img_source = st.radio("Image source", ["Upload", "Example"], horizontal=True, label_visibility="collapsed", key="s2f_img_source")
@@ -405,7 +419,8 @@ if not batch_mode:
 
 # Single-image keys (for non-batch)
 key_img = (uploaded.name if uploaded else None) if img_source == "Upload" else selected_sample
-current_key = (model_type, checkpoint, key_img)
+_cond_key = _inference_cache_condition_key(model_type, use_manual, substrate_val, substrate_config)
+current_key = (model_type, checkpoint, key_img, _cond_key)
 cached = st.session_state["prediction_result"]
 has_cached = cached is not None and cached.get("cache_key") == current_key and not batch_mode
 just_ran = run and checkpoint and has_image and not batch_mode
@@ -424,8 +439,9 @@ def _load_predictor(model_type, checkpoint, ckp_folder):
 
 
 def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, auto_cell_boundary,
-                                     min_percentile, max_percentile, clip_min, clip_max, clip_bounds,
-                                     download_key_suffix="", check_measure_dialog=False):
+                                     min_percentile, max_percentile, clip_min, clip_max, clamp_only,
+                                     download_key_suffix="", check_measure_dialog=False,
+                                     show_success=False):
     """Prepare display from cached result and render. Used by both just_ran and has_cached paths."""
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
     display_heatmap = apply_display_scale(
@@ -434,18 +450,19 @@ def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, a
         max_percentile=max_percentile,
         clip_min=clip_min,
         clip_max=clip_max,
-        clip_bounds=clip_bounds,
+        clamp_only=clamp_only,
     )
     cell_mask = estimate_cell_mask(heatmap) if auto_cell_boundary else None
     _populate_measure_session_state(
         heatmap, img, pixel_sum, force, key_img, colormap_name,
         display_mode, auto_cell_boundary, cell_mask=cell_mask,
         min_percentile=min_percentile, max_percentile=max_percentile,
-        clip_min=clip_min, clip_max=clip_max, clip_bounds=clip_bounds,
+        clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
     )
     if check_measure_dialog and st.session_state.pop("open_measure_dialog", False):
         measure_region_dialog()
-    st.success("Prediction complete!")
+    if show_success:
+        st.success("Prediction complete!")
     render_result_display(
         img, heatmap, display_heatmap, pixel_sum, force, key_img,
         download_key_suffix=download_key_suffix,
@@ -454,7 +471,7 @@ def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, a
         measure_region_dialog=_get_measure_dialog_fn(),
         auto_cell_boundary=auto_cell_boundary,
         cell_mask=cell_mask,
-        clip_min=clip_min, clip_max=clip_max, clip_bounds=clip_bounds,
+        clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
     )
 
 
@@ -502,7 +519,7 @@ if just_ran_batch:
                 clip_min=clip_min,
                 clip_max=clip_max,
                 auto_cell_boundary=auto_cell_boundary,
-                clip_bounds=clip_bounds,
+                clamp_only=clamp_only,
             )
         except Exception as e:
             if progress_bar is not None:
@@ -511,7 +528,6 @@ if just_ran_batch:
             st.code(traceback.format_exc())
 
 elif batch_mode and st.session_state.get("batch_results"):
-    st.success("Prediction complete!")
     render_batch_results(
         st.session_state["batch_results"],
         colormap_name=colormap_name,
@@ -521,7 +537,7 @@ elif batch_mode and st.session_state.get("batch_results"):
         clip_min=clip_min,
         clip_max=clip_max,
         auto_cell_boundary=auto_cell_boundary,
-        clip_bounds=clip_bounds,
+        clamp_only=clamp_only,
     )
 
 elif just_ran:
@@ -535,7 +551,7 @@ elif just_ran:
                 substrate=sub_val,
                 substrate_config=substrate_config if model_type == "single_cell" else None,
             )
-            cache_key = (model_type, checkpoint, key_img)
+            cache_key = (model_type, checkpoint, key_img, _cond_key)
             r = {
                 "img": img.copy(),
                 "heatmap": heatmap.copy(),
@@ -546,8 +562,9 @@ elif just_ran:
             st.session_state["prediction_result"] = r
             _prepare_and_render_cached_result(
                 r, key_img, colormap_name, display_mode, auto_cell_boundary,
-                min_percentile, max_percentile, clip_min, clip_max, clip_bounds,
+                min_percentile, max_percentile, clip_min, clip_max, clamp_only,
                 download_key_suffix="", check_measure_dialog=False,
+                show_success=True,
             )
         except Exception as e:
             st.error(f"Prediction failed: {e}")
@@ -557,8 +574,9 @@ elif has_cached:
     r = st.session_state["prediction_result"]
     _prepare_and_render_cached_result(
         r, key_img, colormap_name, display_mode, auto_cell_boundary,
-        min_percentile, max_percentile, clip_min, clip_max, clip_bounds,
+        min_percentile, max_percentile, clip_min, clip_max, clamp_only,
         download_key_suffix="_cached", check_measure_dialog=True,
+        show_success=False,
     )
 
 elif run and not checkpoint:
@@ -567,9 +585,6 @@ elif run and not has_image and not has_batch:
     st.warning("Please upload an image or select an example.")
 elif run and batch_mode and not has_batch:
     st.warning(f"Please upload or select 1–{BATCH_MAX_IMAGES} images for batch processing.")
-
-st.sidebar.markdown('<div class="sidebar-section"><span class="section-title"></span></div>', unsafe_allow_html=True)
-render_system_status()
 
 st.markdown(f"""
 <div class="footer-citation">

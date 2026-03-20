@@ -2,6 +2,10 @@
 # Required for file uploads on Hugging Face Spaces (iframe blocks XSRF cookies)
 enableXsrfProtection = false
 
+# Optional: slimmer top bar (Streamlit ≥1.29). Uncomment if the header still clips custom UI:
+# [client]
+# toolbarMode = "minimal"
+
 [theme]
 primaryColor = "#0d9488"
 backgroundColor = "#ffffff"

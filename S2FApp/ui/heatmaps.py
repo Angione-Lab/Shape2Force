@@ -44,8 +44,15 @@ def _draw_region_overlay(annotated, mask, color, fill_alpha=0.3, stroke_width=2)
     cv2.drawContours(annotated, contours, -1, color, stroke_width)
 
 
-def render_horizontal_colorbar(colormap_name, clip_min=0, clip_max=1, is_rescale=False):
-    """Render a compact horizontal colorbar for batch mode, anchored above the table."""
+def render_horizontal_colorbar(colormap_name, clip_min=0, clip_max=1, is_rescale=False, caption=None):
+    """
+    Render a compact horizontal colorbar for batch mode, anchored above the table.
+
+    When ``is_rescale`` is True (Force scale **Range** with a strict sub-interval), tick labels show
+    model force values in ``[clip_min, clip_max]``. The gradient still spans the full colormap because
+    the heatmap has already been **rescaled** so the lowest (highest) value in your range maps to
+    the colormap minimum (maximum)—same convention as the main Plotly view.
+    """
     ticks = [0, 0.25, 0.5, 0.75, 1]
     if is_rescale:
         rng = clip_max - clip_min
@@ -62,6 +69,8 @@ def render_horizontal_colorbar(colormap_name, clip_min=0, clip_max=1, is_rescale
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
+    if caption:
+        st.caption(caption)
 
 
 def make_annotated_heatmap(heatmap_rgb, mask, fill_alpha=0.3, stroke_color=(0, 188, 212), stroke_width=2):

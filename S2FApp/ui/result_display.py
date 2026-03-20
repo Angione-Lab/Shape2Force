@@ -22,10 +22,13 @@ from ui.measure_tool import (
     HAS_DRAWABLE_CANVAS,
 )
 
+# Histogram bar color (matches static/s2f_styles.css accent)
+_HISTOGRAM_ACCENT = "#0d9488"
+
 
 def render_batch_results(batch_results, colormap_name="Jet", display_mode="Default",
                         min_percentile=0, max_percentile=100, clip_min=0, clip_max=1,
-                        auto_cell_boundary=False, clip_bounds=False):
+                        auto_cell_boundary=False, clamp_only=False):
     """
     Render batch prediction results: summary table, bright-field row, heatmap row, and bulk download.
     batch_results: list of dicts with img, heatmap, force, pixel_sum, key_img, cell_mask.
@@ -43,7 +46,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
         r["_display_heatmap"] = apply_display_scale(
             r["heatmap"], display_mode,
             min_percentile=min_percentile, max_percentile=max_percentile,
-            clip_min=clip_min, clip_max=clip_max, clip_bounds=clip_bounds,
+            clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
         )
     # Build table rows - consistent column names for both modes
     headers = ["Image", "Force", "Sum", "Max", "Mean"]
@@ -86,7 +89,14 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
         )
         with hm_cols[i % n_cols]:
             st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
-    render_horizontal_colorbar(colormap_name, clip_min, clip_max, is_rescale_b)
+    render_horizontal_colorbar(
+        colormap_name, clip_min, clip_max, is_rescale_b,
+        caption=(
+            "Ticks = force values in your selected [min, max] range; the strip uses the full colormap for the rescaled image (low → high)."
+            if is_rescale_b
+            else None
+        ),
+    )
     # Table
     st.dataframe(
         {h: [r[i] for r in rows] for i, h in enumerate(headers)},
@@ -102,7 +112,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
             vals = vals[vals > 0] if np.any(vals > 0) else vals
             st.markdown(f"**{r['key_img']}**")
             if len(vals) > 0:
-                fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color="#0d9488")])
+                fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color=_HISTOGRAM_ACCENT)])
                 fig.update_layout(
                     height=220, margin=dict(l=40, r=20, t=10, b=40),
                     xaxis_title="Force value", yaxis_title="Count",
@@ -149,7 +159,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
 
 def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, key_img, download_key_suffix="",
                          colormap_name="Jet", display_mode="Default", measure_region_dialog=None, auto_cell_boundary=True,
-                         cell_mask=None, clip_min=0.0, clip_max=1.0, clip_bounds=False):
+                         cell_mask=None, clip_min=0.0, clip_max=1.0, clamp_only=False):
     """
     Render prediction result: plot, metrics, expander, and download/measure buttons.
     measure_region_dialog: callable to open measure dialog (when ST_DIALOG available).
@@ -172,7 +182,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
         ]
     else:
         main_csv_rows = [
-            ["image", "Sum of all pixels", "Cell force (scaled)", "Heatmap max", "Heatmap mean"],
+            ["image", "Sum of all pixels", "Force (scaled)", "Heatmap max", "Heatmap mean"],
             [base_name, f"{pixel_sum:.2f}", f"{force:.2f}",
              f"{np.max(raw_heatmap):.4f}", f"{np.mean(raw_heatmap):.4f}"],
         ]
@@ -227,7 +237,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
         with col1:
             st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
         with col2:
-            st.metric("Cell force (scaled)", f"{force:.2f}", help="Total traction force in physical units")
+            st.metric("Force (scaled)", f"{force:.2f}", help="Total traction force in physical units (full field of view)")
         with col3:
             st.metric("Heatmap max", f"{np.max(raw_heatmap):.4f}", help="Peak force intensity in the map")
         with col4:
@@ -252,7 +262,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
                 st.metric("P75", f"{p75:.4f}")
                 st.metric("P90", f"{p90:.4f}")
             st.markdown("**Histogram**")
-            hist_fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color="#0d9488")])
+            hist_fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color=_HISTOGRAM_ACCENT)])
             hist_fig.update_layout(
                 height=220, margin=dict(l=40, r=20, t=20, b=40),
                 xaxis_title="Force value", yaxis_title="Count",
@@ -292,7 +302,7 @@ This is the raw image you provided—it shows cell shape but not forces.
 
 **Metrics (auto cell boundary off):**
 - **Sum of all pixels:** Raw sum over entire map
-- **Cell force (scaled):** Total traction force in physical units
+- **Force (scaled):** Total traction force in physical units (full field of view)
 - **Heatmap max/mean:** Peak and average force intensity (full field of view)
             """)
 

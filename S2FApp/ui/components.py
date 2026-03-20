@@ -4,7 +4,6 @@ import streamlit as st
 # Resolve st.dialog early to fix ordering bug (used in measure dialog)
 ST_DIALOG = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
 
-from ui.system_status import render_system_status
 from ui.result_display import render_batch_results, render_result_display
 from ui.measure_tool import (
     build_original_vals,
@@ -18,7 +17,6 @@ from ui.measure_tool import (
 __all__ = [
     "ST_DIALOG",
     "HAS_DRAWABLE_CANVAS",
-    "render_system_status",
     "render_batch_results",
     "render_result_display",
     "build_original_vals",
