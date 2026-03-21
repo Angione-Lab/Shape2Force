@@ -24,6 +24,9 @@ from ui.measure_tool import (
 
 # Histogram bar color (matches static/s2f_styles.css accent)
 _HISTOGRAM_ACCENT = "#0d9488"
+_RESULT_FIG_HEIGHT = 320
+_HISTOGRAM_HEIGHT = 180
+_BATCH_PREVIEW_LIMIT = 3
 
 
 def render_batch_results(batch_results, colormap_name="Jet", display_mode="Default",
@@ -70,25 +73,49 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
         csv_rows.append([os.path.splitext(key)[0]] + row[1:])
     st.markdown('<div class="result-label"><span class="result-badge input">INPUT</span> Bright-field images</div>', unsafe_allow_html=True)
     n_cols = min(5, len(batch_results))
-    bf_cols = st.columns(n_cols)
-    for i, r in enumerate(batch_results):
+    preview_count = min(_BATCH_PREVIEW_LIMIT, len(batch_results))
+    preview_results = batch_results[:preview_count]
+    remaining_results = batch_results[preview_count:]
+    bf_cols = st.columns(min(n_cols, preview_count))
+    for i, r in enumerate(preview_results):
         img = r["img"]
         if img.ndim == 2:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         else:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        with bf_cols[i % n_cols]:
+        with bf_cols[i % min(n_cols, preview_count)]:
             st.image(img_rgb, caption=r["key_img"], use_container_width=True)
     is_rescale_b = display_mode == "Range" and clip_max > clip_min and not (clip_min == 0 and clip_max == 1)
     st.markdown('<div class="result-label"><span class="result-badge output">OUTPUT</span> Predicted force maps</div>', unsafe_allow_html=True)
-    hm_cols = st.columns(n_cols)
-    for i, r in enumerate(batch_results):
+    hm_cols = st.columns(min(n_cols, preview_count))
+    for i, r in enumerate(preview_results):
         hm_rgb = heatmap_to_rgb_with_contour(
             r["_display_heatmap"], colormap_name,
             r.get("_cell_mask") if auto_cell_boundary else None,
         )
-        with hm_cols[i % n_cols]:
+        with hm_cols[i % min(n_cols, preview_count)]:
             st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
+    if remaining_results:
+        with st.expander(f"Show remaining batch previews ({len(remaining_results)})", expanded=False):
+            st.markdown('<div class="result-label"><span class="result-badge input">INPUT</span> Remaining bright-field images</div>', unsafe_allow_html=True)
+            rem_bf_cols = st.columns(min(5, len(remaining_results)))
+            for i, r in enumerate(remaining_results):
+                img = r["img"]
+                if img.ndim == 2:
+                    img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+                else:
+                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                with rem_bf_cols[i % min(5, len(remaining_results))]:
+                    st.image(img_rgb, caption=r["key_img"], use_container_width=True)
+            st.markdown('<div class="result-label"><span class="result-badge output">OUTPUT</span> Remaining predicted force maps</div>', unsafe_allow_html=True)
+            rem_hm_cols = st.columns(min(5, len(remaining_results)))
+            for i, r in enumerate(remaining_results):
+                hm_rgb = heatmap_to_rgb_with_contour(
+                    r["_display_heatmap"], colormap_name,
+                    r.get("_cell_mask") if auto_cell_boundary else None,
+                )
+                with rem_hm_cols[i % min(5, len(remaining_results))]:
+                    st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
     render_horizontal_colorbar(
         colormap_name, clip_min, clip_max, is_rescale_b,
         caption=(
@@ -114,7 +141,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
             if len(vals) > 0:
                 fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color=_HISTOGRAM_ACCENT)])
                 fig.update_layout(
-                    height=220, margin=dict(l=40, r=20, t=10, b=40),
+                    height=_HISTOGRAM_HEIGHT, margin=dict(l=40, r=20, t=10, b=40),
                     xaxis_title="Force value", yaxis_title="Count",
                     showlegend=False,
                 )
@@ -214,7 +241,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
         colorbar=colorbar_cfg), row=1, col=2)
     add_cell_contour_to_fig(fig_pl, cell_mask, row=1, col=2)
     fig_pl.update_layout(
-        height=400,
+        height=_RESULT_FIG_HEIGHT,
         margin=dict(l=10, r=10, t=10, b=10),
         xaxis=dict(scaleanchor="y", scaleratio=1),
         xaxis2=dict(scaleanchor="y2", scaleratio=1),
@@ -264,7 +291,7 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
             st.markdown("**Histogram**")
             hist_fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color=_HISTOGRAM_ACCENT)])
             hist_fig.update_layout(
-                height=220, margin=dict(l=40, r=20, t=20, b=40),
+                height=_HISTOGRAM_HEIGHT, margin=dict(l=40, r=20, t=20, b=40),
                 xaxis_title="Force value", yaxis_title="Count",
                 showlegend=False,
             )

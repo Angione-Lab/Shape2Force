@@ -45,7 +45,15 @@ def estimate_cell_mask(heatmap, sigma=2, min_size=200, exclude_full_image=True,
     # Morphological cleanup
     mask = closing(mask, disk(5)).astype(np.uint8)
     mask = opening(mask, disk(3)).astype(np.uint8)
-    mask = remove_small_objects(mask.astype(bool), min_size=min_size).astype(np.uint8)
+    mask_bool = mask.astype(bool)
+    min_size_int = max(int(min_size), 0)
+    # skimage >=0.26 deprecates `min_size` in favor of `max_size` (inclusive threshold).
+    # Use `min_size - 1` so behavior stays equivalent to the prior strict `< min_size` rule.
+    try:
+        mask_bool = remove_small_objects(mask_bool, max_size=max(min_size_int - 1, 0))
+    except TypeError:
+        mask_bool = remove_small_objects(mask_bool, min_size=min_size_int)
+    mask = mask_bool.astype(np.uint8)
 
     # Select component(s): optionally exclude full-image background, then merge
     # all significant components (handles multiple disconnected force regions)

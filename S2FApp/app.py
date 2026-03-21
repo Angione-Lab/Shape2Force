@@ -222,8 +222,6 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="sidebar-section"><span class="section-title">Model</span></div>', unsafe_allow_html=True)
-
     model_type = st.radio(
         "Model type",
         ["single_cell", "spheroid"],
@@ -279,8 +277,6 @@ with st.sidebar:
                 use_manual = True
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
-
-    st.markdown('<div class="sidebar-section"><span class="section-title">Analysis</span></div>', unsafe_allow_html=True)
 
     batch_mode = st.toggle(
         "Batch mode",
