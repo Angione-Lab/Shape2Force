@@ -6,6 +6,11 @@
     --s2f-primary-rgb: 13, 148, 136;
     /* Space for Streamlit’s fixed top toolbar (Deploy / menu). Set when header exists (see below). */
     --s2f-streamlit-header-offset: 0px;
+    /* Sidebar grouped blocks: faint surface, no heavy chrome */
+    --s2f-sidebar-panel-bg: rgba(255, 255, 255, 0.42);
+    --s2f-sidebar-panel-border: rgba(203, 213, 225, 0.34);
+    /* Match Streamlit’s sidebar horizontal padding so panels can full-bleed the track */
+    --s2f-sidebar-inline-inset: 1rem;
 }
 /* Streamlit renders a fixed header; without this offset, the sidebar and first main block sit underneath it. */
 .stApp:has(header[data-testid="stHeader"]) {
@@ -185,9 +190,8 @@ section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding-bottom: 0.8rem;
-    margin-bottom: 0.5rem;
-    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 0.65rem;
+    margin-bottom: 0.35rem;
 }
 .sidebar-brand .brand-icon {
     font-size: 1.6rem;
@@ -198,6 +202,36 @@ section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
     font-weight: 700;
     color: var(--s2f-primary-dark);
     letter-spacing: -0.01em;
+}
+
+/*
+ * Sidebar panels (model+ckp, conditions, force scale): horizontal bands — faded fill
+ * with top/bottom dividers; stretch edge-to-edge in the sidebar (bleed past content padding).
+ */
+section[data-testid="stSidebar"] .st-key-s2f_grp_model,
+section[data-testid="stSidebar"] .st-key-s2f_grp_conditions,
+section[data-testid="stSidebar"] .st-key-s2f_grp_force {
+    box-sizing: border-box !important;
+    margin-left: calc(-1 * var(--s2f-sidebar-inline-inset)) !important;
+    margin-right: calc(-1 * var(--s2f-sidebar-inline-inset)) !important;
+    margin-bottom: 0.45rem !important;
+    width: calc(100% + 2 * var(--s2f-sidebar-inline-inset)) !important;
+    max-width: none !important;
+    padding: 0.58rem var(--s2f-sidebar-inline-inset) 0.62rem !important;
+    border-radius: 0 !important;
+    background: var(--s2f-sidebar-panel-bg) !important;
+    border: none !important;
+    border-top: 1px solid var(--s2f-sidebar-panel-border) !important;
+    border-bottom: 1px solid var(--s2f-sidebar-panel-border) !important;
+    box-shadow: none !important;
+}
+/* Inner layout flex — no inner frame */
+section[data-testid="stSidebar"] .st-key-s2f_grp_model > div,
+section[data-testid="stSidebar"] .st-key-s2f_grp_conditions > div,
+section[data-testid="stSidebar"] .st-key-s2f_grp_force > div {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
 }
 
 /* === Metric cards === */

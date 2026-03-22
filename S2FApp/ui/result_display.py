@@ -116,14 +116,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
                 )
                 with rem_hm_cols[i % min(5, len(remaining_results))]:
                     st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
-    render_horizontal_colorbar(
-        colormap_name, clip_min, clip_max, is_rescale_b,
-        caption=(
-            "Ticks = force values in your selected [min, max] range; the strip uses the full colormap for the rescaled image (low → high)."
-            if is_rescale_b
-            else None
-        ),
-    )
+    render_horizontal_colorbar(colormap_name, clip_min, clip_max, is_rescale_b)
     # Table
     st.dataframe(
         {h: [r[i] for r in rows] for i, h in enumerate(headers)},

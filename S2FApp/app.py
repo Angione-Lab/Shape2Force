@@ -222,59 +222,61 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    model_type = st.radio(
-        "Model type",
-        ["single_cell", "spheroid"],
-        format_func=lambda x: MODEL_TYPE_LABELS[x],
-        horizontal=False,
-        help="Single cell: substrate-aware force prediction. Spheroid: spheroid force maps.",
-    )
-
-    ckp_folder = get_ckp_folder(ckp_base, model_type)
-    ckp_files = list_files_in_folder(ckp_folder, ".pth")
-    ckp_subfolder_name = model_subfolder(model_type)
-
-    if ckp_files:
-        checkpoint = st.selectbox(
-            "Checkpoint",
-            ckp_files,
-            key=f"checkpoint_{model_type}",
-            help=f"Select a .pth file from ckp/{ckp_subfolder_name}/",
+    with st.container(border=False, key="s2f_grp_model"):
+        model_type = st.radio(
+            "Model type",
+            ["single_cell", "spheroid"],
+            format_func=lambda x: MODEL_TYPE_LABELS[x],
+            horizontal=False,
+            help="Single cell: substrate-aware force prediction. Spheroid: spheroid force maps.",
         )
-    else:
-        st.warning(f"No .pth files in ckp/{ckp_subfolder_name}/. Add checkpoints to load.")
-        checkpoint = None
+
+        ckp_folder = get_ckp_folder(ckp_base, model_type)
+        ckp_files = list_files_in_folder(ckp_folder, ".pth")
+        ckp_subfolder_name = model_subfolder(model_type)
+
+        if ckp_files:
+            checkpoint = st.selectbox(
+                "Checkpoint",
+                ckp_files,
+                key=f"checkpoint_{model_type}",
+                help=f"Select a .pth file from ckp/{ckp_subfolder_name}/",
+            )
+        else:
+            st.warning(f"No .pth files in ckp/{ckp_subfolder_name}/. Add checkpoints to load.")
+            checkpoint = None
 
     substrate_config = None
     substrate_val = DEFAULT_SUBSTRATE
     use_manual = True
     if model_type == "single_cell":
         try:
-            st.markdown('<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: 0.5rem;">Conditions</p>', unsafe_allow_html=True)
-            conditions_source = st.radio(
-                "Conditions",
-                ["From config", "Manually"],
-                horizontal=True,
-                label_visibility="collapsed",
-            )
-            from_config = conditions_source == "From config"
-            if from_config:
-                substrate_config = None
-                substrates = list_substrates()
-                substrate_val = st.selectbox(
-                    "Conditions (from config)",
-                    substrates,
-                    help="Select a preset from config/substrate_settings.json",
+            with st.container(border=False, key="s2f_grp_conditions"):
+                st.markdown('<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: 0.5rem;">Conditions</p>', unsafe_allow_html=True)
+                conditions_source = st.radio(
+                    "Conditions",
+                    ["From config", "Manually"],
+                    horizontal=True,
                     label_visibility="collapsed",
                 )
-                use_manual = False
-            else:
-                manual_pixelsize = st.number_input("Pixel size (µm/px)", min_value=0.1, max_value=50.0,
-                                                   value=3.0769, step=0.1, format="%.4f")
-                manual_young = st.number_input("Pascals", min_value=100.0, max_value=100000.0,
-                                               value=6000.0, step=100.0, format="%.0f")
-                substrate_config = {"pixelsize": manual_pixelsize, "young": manual_young}
-                use_manual = True
+                from_config = conditions_source == "From config"
+                if from_config:
+                    substrate_config = None
+                    substrates = list_substrates()
+                    substrate_val = st.selectbox(
+                        "Conditions (from config)",
+                        substrates,
+                        help="Select a preset from config/substrate_settings.json",
+                        label_visibility="collapsed",
+                    )
+                    use_manual = False
+                else:
+                    manual_pixelsize = st.number_input("Pixel size (µm/px)", min_value=0.1, max_value=50.0,
+                                                       value=3.0769, step=0.1, format="%.4f")
+                    manual_young = st.number_input("Pascals", min_value=100.0, max_value=100000.0,
+                                                   value=6000.0, step=100.0, format="%.0f")
+                    substrate_config = {"pixelsize": manual_pixelsize, "young": manual_young}
+                    use_manual = True
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
 
@@ -290,47 +292,48 @@ with st.sidebar:
         help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
     )
 
-    force_scale_mode = st.radio(
-        "Force scale",
-        ["Default", "Range"],
-        horizontal=True,
-        key="s2f_force_scale",
-        help="Default: display forces on the full 0–1 scale. Range: set a sub-range; values outside are zeroed and the rest is stretched to the colormap.",
-    )
-    if force_scale_mode == "Default":
-        clip_min, clip_max = 0.0, 1.0
-        display_mode = "Default"
-        clamp_only = True
-    else:
-        mn_col, mx_col = st.columns(2)
-        with mn_col:
-            clip_min = st.number_input(
-                "Min",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.0,
-                step=0.01,
-                format="%.2f",
-                key="s2f_clip_min",
-                help="Lower bound of the display range (0–1).",
-            )
-        with mx_col:
-            clip_max = st.number_input(
-                "Max",
-                min_value=0.0,
-                max_value=1.0,
-                value=1.0,
-                step=0.01,
-                format="%.2f",
-                key="s2f_clip_max",
-                help="Upper bound of the display range (0–1).",
-            )
-        if clip_min >= clip_max:
-            st.warning("Min must be less than max. Using 0.00–1.00 for display.")
+    with st.container(border=False, key="s2f_grp_force"):
+        force_scale_mode = st.radio(
+            "Force scale",
+            ["Default", "Range"],
+            horizontal=True,
+            key="s2f_force_scale",
+            help="Default: display forces on the full 0–1 scale. Range: set a sub-range; values outside are zeroed and the rest is stretched to the colormap.",
+        )
+        if force_scale_mode == "Default":
             clip_min, clip_max = 0.0, 1.0
-        display_mode = "Range"
-        clamp_only = False
-    min_percentile, max_percentile = 0, 100
+            display_mode = "Default"
+            clamp_only = True
+        else:
+            mn_col, mx_col = st.columns(2)
+            with mn_col:
+                clip_min = st.number_input(
+                    "Min",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="s2f_clip_min",
+                    help="Lower bound of the display range (0–1).",
+                )
+            with mx_col:
+                clip_max = st.number_input(
+                    "Max",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=1.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="s2f_clip_max",
+                    help="Upper bound of the display range (0–1).",
+                )
+            if clip_min >= clip_max:
+                st.warning("Min must be less than max. Using 0.00–1.00 for display.")
+                clip_min, clip_max = 0.0, 1.0
+            display_mode = "Range"
+            clamp_only = False
+        min_percentile, max_percentile = 0, 100
 
     cm_col_lbl, cm_col_sb = st.columns([1, 2])
     with cm_col_lbl:
