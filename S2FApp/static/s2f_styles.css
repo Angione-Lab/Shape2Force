@@ -11,6 +11,7 @@
     --s2f-sidebar-panel-border: rgba(203, 213, 225, 0.34);
     /* Match Streamlit’s sidebar horizontal padding so panels can full-bleed the track */
     --s2f-sidebar-inline-inset: 1rem;
+    --s2f-sidebar-width: 360px;
 }
 /* Streamlit renders a fixed header; without this offset, the sidebar and first main block sit underneath it. */
 .stApp:has(header[data-testid="stHeader"]) {
@@ -34,29 +35,25 @@ html, body {
     overflow: hidden !important;
     margin: 0 !important;
 }
+/* App shell: flex column, dot grid background */
 .stApp {
     height: 100vh !important;
     max-height: 100dvh !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
+    background-color: #fafbfc !important;
+    background-image:
+        radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.12) 1px, transparent 0);
+    background-size: 28px 28px !important;
+    background-position: 0 0, 0 0 !important;
 }
-/* Flex row: sidebar + main (first flex child of .stApp that wraps the app shell; header may be a sibling above this) */
+/* Flex row: sidebar + main */
 .stApp > div {
     display: flex !important;
     flex: 1 !important;
     min-height: 0 !important;
     overflow: hidden !important;
-}
-
-/* === Modern background patterns === */
-.stApp {
-    background-color: #fafbfc !important;
-    background-image:
-        /* Subtle dot grid */
-        radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.12) 1px, transparent 0);
-    background-size: 28px 28px !important;
-    background-position: 0 0, 0 0 !important;
 }
 /* Soft gradient overlay for depth */
 .stApp::before {
@@ -139,7 +136,7 @@ section[data-testid="stSidebar"] {
     position: fixed !important;
     top: var(--s2f-streamlit-header-offset, 0px) !important;
     left: 0 !important;
-    width: 360px !important;
+    width: var(--s2f-sidebar-width) !important;
     height: calc(100dvh - var(--s2f-streamlit-header-offset, 0px)) !important;
     max-height: calc(100dvh - var(--s2f-streamlit-header-offset, 0px)) !important;
     overflow-x: hidden !important;
@@ -170,32 +167,12 @@ section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
     font-weight: 500 !important;
     color: #334155 !important;
 }
-.sidebar-section {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0.5rem 0 0.25rem;
-    margin-top: 0.6rem;
-    border-bottom: 2px solid #94a3b8;
-    margin-bottom: 0.75rem;
-}
-.sidebar-section .section-title {
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: var(--s2f-primary-dark);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}
 .sidebar-brand {
     display: flex;
     align-items: center;
     gap: 10px;
     padding-bottom: 0.65rem;
     margin-bottom: 0.35rem;
-}
-.sidebar-brand .brand-icon {
-    font-size: 1.6rem;
-    line-height: 1;
 }
 .sidebar-brand .brand-text {
     font-size: 1.1rem;
@@ -387,67 +364,6 @@ div[data-testid="stHorizontalBlock"]:has([data-testid="stDownloadButton"]):has([
     color: var(--s2f-primary-dark);
 }
 
-/* === Scale visualization === */
-.scale-viz {
-    margin: 0.3rem 0 0.5rem;
-    font-size: 0.78rem;
-    color: #64748b;
-}
-.sv-track {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-.sv-end {
-    font-weight: 600;
-    font-size: 0.72rem;
-    color: #94a3b8;
-    min-width: 14px;
-    text-align: center;
-}
-.sv-bar {
-    flex: 1;
-    height: 10px;
-    background: #e2e8f0;
-    border-radius: 5px;
-    position: relative;
-    overflow: visible;
-}
-.sv-active {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    background: linear-gradient(90deg, var(--s2f-primary), var(--s2f-primary-dark));
-    border-radius: 5px;
-    box-shadow: 0 1px 4px rgba(var(--s2f-primary-rgb), 0.3);
-}
-.sv-lbl {
-    position: absolute;
-    top: 14px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: var(--s2f-primary-dark);
-    white-space: nowrap;
-}
-.sv-lbl-l { left: 0; }
-.sv-lbl-r { right: 0; }
-.sv-note {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 10px;
-    font-size: 0.75rem;
-    color: #64748b;
-}
-.sv-pill {
-    background: rgba(var(--s2f-primary-rgb), 0.15);
-    color: var(--s2f-primary-dark);
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 0.72rem;
-}
-
 /* === Run prediction info bar === */
 .run-info {
     display: flex;
@@ -506,10 +422,7 @@ section[data-testid="stSidebar"] [data-testid="stMultiSelect"] > div > div:focus
     border-color: var(--s2f-primary) !important;
     box-shadow: 0 0 0 1px rgba(var(--s2f-primary-rgb), 0.28) !important;
 }
-/* Radio: selected circle uses accent color */
-[data-testid="stRadio"] input[type="radio"] {
-    accent-color: var(--s2f-primary);
-}
+/* Radio: accent color */
 [data-testid="stRadio"] input {
     accent-color: var(--s2f-primary);
 }
@@ -540,13 +453,19 @@ ul[role="listbox"] li {
     color: #1e293b !important;
     background-color: #ffffff !important;
 }
-.selectbox-label {
-    margin: 0;
-    padding-top: 0.4rem;
-    font-size: 0.9rem;
+/* Sidebar / form labels (colormap row, section titles) */
+.s2f-form-label {
+    font-size: 0.95rem;
     font-weight: 500;
     color: #334155;
     line-height: 1.2;
+    margin: 0;
+}
+.s2f-form-label--colormap {
+    padding-top: 0.4rem;
+}
+.s2f-form-label--section {
+    margin-bottom: 0.5rem;
 }
 
 /* === Dataframe === */
@@ -598,7 +517,7 @@ hr { border-color: #cbd5e1 !important; opacity: 0.7; }
 .footer-citation {
     position: fixed;
     bottom: 0;
-    left: 360px;
+    left: var(--s2f-sidebar-width);
     right: 0;
     z-index: 999;
     padding: 0.5rem 1rem 0.55rem;
@@ -615,7 +534,7 @@ hr { border-color: #cbd5e1 !important; opacity: 0.7; }
  */
 [data-testid="stAppViewContainer"],
 .appview-container .main {
-    margin-left: 360px !important;
+    margin-left: var(--s2f-sidebar-width) !important;
     flex: 1 !important;
     min-height: 0 !important;
     overflow-y: auto !important;
@@ -637,6 +556,49 @@ section[data-testid="stMain"] {
 section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0.85rem !important;
     padding-bottom: 0.5rem !important;
+}
+
+/* Measure tool: value panel (replaces inline styles in measure_tool.py) */
+.s2f-measure-vals-heading {
+    font-weight: 400;
+    color: #334155;
+    font-size: 0.95rem;
+    margin: 0 20px 4px 4px;
+}
+.s2f-measure-vals-panel {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 0 10px 20px 10px;
+    background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.s2f-measure-vals-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    font-size: 0.9rem;
+}
+
+/* Dialog / expander: measure canvas layout */
+[data-testid="stDialog"] [data-testid="stSelectbox"],
+[data-testid="stExpander"] [data-testid="stSelectbox"],
+[data-testid="stDialog"] [data-testid="stSelectbox"] > div,
+[data-testid="stExpander"] [data-testid="stSelectbox"] > div {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+[data-testid="stDialog"] [data-testid="stMetric"] label,
+[data-testid="stDialog"] [data-testid="stMetric"] [data-testid="stMetricValue"],
+[data-testid="stExpander"] [data-testid="stMetric"] label,
+[data-testid="stExpander"] [data-testid="stMetric"] [data-testid="stMetricValue"] {
+    font-size: 0.95rem !important;
+}
+[data-testid="stDialog"] img,
+[data-testid="stExpander"] img {
+    border-radius: 0 !important;
 }
 
 /* === Responsive === */

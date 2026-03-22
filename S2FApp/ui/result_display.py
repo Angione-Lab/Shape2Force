@@ -10,7 +10,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from utils.display import apply_display_scale, cv_colormap_to_plotly_colorscale
+from utils.display import apply_display_scale, cv_colormap_to_plotly_colorscale, is_display_range_remapped
 from utils.report import heatmap_to_rgb_with_contour, heatmap_to_png_bytes, create_pdf_report
 from utils.segmentation import estimate_cell_mask
 from ui.heatmaps import render_horizontal_colorbar, add_cell_contour_to_fig
@@ -29,8 +29,15 @@ _HISTOGRAM_HEIGHT = 180
 _BATCH_PREVIEW_LIMIT = 3
 
 
+def _result_banner(badge: str, badge_class: str, title: str) -> str:
+    """HTML row for INPUT/OUTPUT section titles (batch + single views). badge_class: input | output."""
+    return (
+        f'<div class="result-label"><span class="result-badge {badge_class}">{badge}</span> {title}</div>'
+    )
+
+
 def render_batch_results(batch_results, colormap_name="Jet", display_mode="Default",
-                        min_percentile=0, max_percentile=100, clip_min=0, clip_max=1,
+                        clip_min=0, clip_max=1,
                         auto_cell_boundary=False, clamp_only=False):
     """
     Render batch prediction results: summary table, bright-field row, heatmap row, and bulk download.
@@ -48,7 +55,6 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
             r["_cell_mask"] = r.get("cell_mask") if auto_cell_boundary else None
         r["_display_heatmap"] = apply_display_scale(
             r["heatmap"], display_mode,
-            min_percentile=min_percentile, max_percentile=max_percentile,
             clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
         )
     # Build table rows - consistent column names for both modes
@@ -71,7 +77,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
                    f"{np.max(heatmap):.4f}", f"{np.mean(heatmap):.4f}"]
         rows.append(row)
         csv_rows.append([os.path.splitext(key)[0]] + row[1:])
-    st.markdown('<div class="result-label"><span class="result-badge input">INPUT</span> Bright-field images</div>', unsafe_allow_html=True)
+    st.markdown(_result_banner("INPUT", "input", "Bright-field images"), unsafe_allow_html=True)
     n_cols = min(5, len(batch_results))
     preview_count = min(_BATCH_PREVIEW_LIMIT, len(batch_results))
     preview_results = batch_results[:preview_count]
@@ -85,8 +91,8 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         with bf_cols[i % min(n_cols, preview_count)]:
             st.image(img_rgb, caption=r["key_img"], use_container_width=True)
-    is_rescale_b = display_mode == "Range" and clip_max > clip_min and not (clip_min == 0 and clip_max == 1)
-    st.markdown('<div class="result-label"><span class="result-badge output">OUTPUT</span> Predicted force maps</div>', unsafe_allow_html=True)
+    is_rescale_b = is_display_range_remapped(display_mode, clip_min, clip_max)
+    st.markdown(_result_banner("OUTPUT", "output", "Predicted force maps"), unsafe_allow_html=True)
     hm_cols = st.columns(min(n_cols, preview_count))
     for i, r in enumerate(preview_results):
         hm_rgb = heatmap_to_rgb_with_contour(
@@ -97,7 +103,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
             st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
     if remaining_results:
         with st.expander(f"Show remaining batch previews ({len(remaining_results)})", expanded=False):
-            st.markdown('<div class="result-label"><span class="result-badge input">INPUT</span> Remaining bright-field images</div>', unsafe_allow_html=True)
+            st.markdown(_result_banner("INPUT", "input", "Remaining bright-field images"), unsafe_allow_html=True)
             rem_bf_cols = st.columns(min(5, len(remaining_results)))
             for i, r in enumerate(remaining_results):
                 img = r["img"]
@@ -107,7 +113,7 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
                     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 with rem_bf_cols[i % min(5, len(remaining_results))]:
                     st.image(img_rgb, caption=r["key_img"], use_container_width=True)
-            st.markdown('<div class="result-label"><span class="result-badge output">OUTPUT</span> Remaining predicted force maps</div>', unsafe_allow_html=True)
+            st.markdown(_result_banner("OUTPUT", "output", "Remaining predicted force maps"), unsafe_allow_html=True)
             rem_hm_cols = st.columns(min(5, len(remaining_results)))
             for i, r in enumerate(remaining_results):
                 hm_rgb = heatmap_to_rgb_with_contour(
@@ -211,13 +217,13 @@ def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, k
 
     buf_hm = heatmap_to_png_bytes(display_heatmap, colormap_name, cell_mask=cell_mask)
 
-    is_rescale = display_mode == "Range" and clip_max > clip_min and not (clip_min == 0.0 and clip_max == 1.0)
+    is_rescale = is_display_range_remapped(display_mode, clip_min, clip_max)
 
     tit1, tit2 = st.columns(2)
     with tit1:
-        st.markdown('<div class="result-label"><span class="result-badge input">INPUT</span> Bright-field image</div>', unsafe_allow_html=True)
+        st.markdown(_result_banner("INPUT", "input", "Bright-field image"), unsafe_allow_html=True)
     with tit2:
-        st.markdown('<div class="result-label"><span class="result-badge output">OUTPUT</span> Predicted force map</div>', unsafe_allow_html=True)
+        st.markdown(_result_banner("OUTPUT", "output", "Predicted force map"), unsafe_allow_html=True)
     fig_pl = make_subplots(rows=1, cols=2)
     fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
     plotly_colorscale = cv_colormap_to_plotly_colorscale(colormap_name)

@@ -257,20 +257,6 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
     heatmap_rgb = heatmap_to_rgb_with_contour(display_heatmap, colormap_name, cell_mask)
     pil_bg = Image.fromarray(heatmap_rgb).resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.LANCZOS)
 
-    st.markdown("""
-    <style>
-        [data-testid="stDialog"] [data-testid="stSelectbox"], [data-testid="stExpander"] [data-testid="stSelectbox"],
-        [data-testid="stDialog"] [data-testid="stSelectbox"] > div, [data-testid="stExpander"] [data-testid="stSelectbox"] > div {
-            width: 100% !important; max-width: 100% !important;
-        }
-        [data-testid="stDialog"] [data-testid="stMetric"] label, [data-testid="stDialog"] [data-testid="stMetric"] [data-testid="stMetricValue"],
-        [data-testid="stExpander"] [data-testid="stMetric"] label, [data-testid="stExpander"] [data-testid="stMetric"] [data-testid="stMetricValue"] {
-            font-size: 0.95rem !important;
-        }
-        [data-testid="stDialog"] img, [data-testid="stExpander"] img { border-radius: 0 !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
     if bf_img is not None:
         bf_resized = cv2.resize(bf_img, (CANVAS_SIZE, CANVAS_SIZE))
         bf_rgb = cv2.cvtColor(bf_resized, cv2.COLOR_GRAY2RGB) if bf_img.ndim == 2 else cv2.cvtColor(bf_resized, cv2.COLOR_BGR2RGB)
@@ -288,19 +274,16 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
             vals = cell_vals if cell_vals else original_vals
             if vals:
                 label = "Cell area" if cell_vals else "Full map"
-                st.markdown(f'<p style="font-weight: 400; color: #334155; font-size: 0.95rem; margin: 0 20px 4px 4px;">{label}</p>', unsafe_allow_html=True)
-                st.markdown(f"""
-                <div style="width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 10px;
-                    padding: 10px 12px; margin: 0 10px 20px 10px; background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
-                    <div style="display: flex; flex-wrap: wrap; gap: 5px; font-size: 0.9rem;">
-                        <span><strong>Sum:</strong> {vals['pixel_sum']:.1f}</span>
-                        <span><strong>Force:</strong> {vals['force']:.1f}</span>
-                        <span><strong>Max:</strong> {vals['max']:.3f}</span>
-                        <span><strong>Mean:</strong> {vals['mean']:.3f}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f'<p class="s2f-measure-vals-heading">{html.escape(label)}</p>'
+                    f'<div class="s2f-measure-vals-panel"><div class="s2f-measure-vals-grid">'
+                    f"<span><strong>Sum:</strong> {vals['pixel_sum']:.1f}</span>"
+                    f"<span><strong>Force:</strong> {vals['force']:.1f}</span>"
+                    f"<span><strong>Max:</strong> {vals['max']:.3f}</span>"
+                    f"<span><strong>Mean:</strong> {vals['mean']:.3f}</span>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
             st.caption("Bright-field")
             bf_display = bf_rgb.copy()
             if cell_mask is not None and np.any(cell_mask > 0):

@@ -4,14 +4,6 @@ import cv2
 
 from config.constants import COLORMAPS, COLORMAP_N_SAMPLES
 
-# Legacy aliases (single mapping at entry — app uses Default / Range / Percentile / Rescale only)
-_DISPLAY_MODE_ALIASES = {
-    "Auto": "Default",
-    "Full": "Default",
-    "Filter": "Range",
-    "Threshold": "Range",
-}
-
 
 def cv_colormap_to_plotly_colorscale(colormap_name, n_samples=None):
     """Build a Plotly colorscale from OpenCV colormap so UI matches download/PDF exactly."""
@@ -27,54 +19,43 @@ def cv_colormap_to_plotly_colorscale(colormap_name, n_samples=None):
     return scale
 
 
-def apply_display_scale(heatmap, mode, min_percentile=0, max_percentile=100,
-                        clip_min=0, clip_max=1, clamp_only=False):
+def is_display_range_remapped(display_mode, clip_min, clip_max):
+    """
+    True when the UI uses Range mode with a clip window other than the full [0, 1]
+    (colorbar tick labels map normalized 0–1 to that interval).
+    """
+    if display_mode != "Range":
+        return False
+    lo, hi = float(clip_min), float(clip_max)
+    return hi > lo and not (lo == 0.0 and hi == 1.0)
+
+
+def apply_display_scale(heatmap, mode, clip_min=0, clip_max=1, clamp_only=False):
     """
     Apply display scaling. Display only—does not change underlying values.
+
+    Supports modes used by the app: ``Default`` (clip to [0, 1]) and ``Range``
+    (window to [clip_min, clip_max]). Unknown ``mode`` is treated like ``Default``.
 
     Parameters
     ----------
     clamp_only : bool
-        Only used for ``mode == "Range"`` or ``mode == "Rescale"`` when ``clip_max > clip_min``:
+        For ``mode == "Range"`` when ``clip_max > clip_min``:
 
-        - **False** (default for Range in the app): pixels outside ``[clip_min, clip_max]`` are set
-          to 0; values inside are linearly mapped to ``[0, 1]`` so the colormap uses the full
-          dynamic range (blue→red) within that interval.
-        - **True**: values are clamped to ``[clip_min, clip_max]`` but **not** rescaled to
-          ``[0, 1]`` (rarely used for the main heatmap view; can compress colormap contrast).
+        - **False** (default in the app for Range): pixels outside ``[clip_min, clip_max]`` are set
+          to 0; values inside are linearly mapped to ``[0, 1]`` for the colormap.
+        - **True**: values are clamped to ``[clip_min, clip_max]`` without rescaling to ``[0, 1]``.
     """
-    mode = _DISPLAY_MODE_ALIASES.get(mode, mode)
-
-    if mode == "Default":
+    if mode != "Range":
         return np.clip(heatmap, 0, 1).astype(np.float32)
-    if mode == "Percentile":
-        pmin = float(np.percentile(heatmap, min_percentile))
-        pmax = float(np.percentile(heatmap, max_percentile))
-        if pmax > pmin:
-            out = (heatmap.astype(np.float32) - pmin) / (pmax - pmin)
-            return np.clip(out, 0, 1).astype(np.float32)
-        return np.clip(heatmap, 0, 1).astype(np.float32)
-    if mode == "Range":
-        vmin, vmax = float(clip_min), float(clip_max)
-        if vmax > vmin:
-            h = heatmap.astype(np.float32)
-            if clamp_only:
-                return np.clip(h, vmin, vmax).astype(np.float32)
-            mask = (h >= vmin) & (h <= vmax)
-            out = np.zeros_like(h)
-            out[mask] = (h[mask] - vmin) / (vmax - vmin)
-            return np.clip(out, 0, 1).astype(np.float32)
-        return np.clip(heatmap, 0, 1).astype(np.float32)
-    if mode == "Rescale":
-        vmin, vmax = float(clip_min), float(clip_max)
-        if vmax > vmin:
-            h = heatmap.astype(np.float32)
-            if clamp_only:
-                clamped = np.clip(h, vmin, vmax)
-                return ((clamped - vmin) / (vmax - vmin)).astype(np.float32)
-            mask = (h >= vmin) & (h <= vmax)
-            out = np.zeros_like(h)
-            out[mask] = (h[mask] - vmin) / (vmax - vmin)
-            return np.clip(out, 0, 1).astype(np.float32)
-        return np.clip(heatmap, 0, 1).astype(np.float32)
+    # Range
+    vmin, vmax = float(clip_min), float(clip_max)
+    if vmax > vmin:
+        h = heatmap.astype(np.float32)
+        if clamp_only:
+            return np.clip(h, vmin, vmax).astype(np.float32)
+        mask = (h >= vmin) & (h <= vmax)
+        out = np.zeros_like(h)
+        out[mask] = (h[mask] - vmin) / (vmax - vmin)
+        return np.clip(out, 0, 1).astype(np.float32)
     return np.clip(heatmap, 0, 1).astype(np.float32)

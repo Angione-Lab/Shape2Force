@@ -68,13 +68,9 @@ if HAS_DRAWABLE_CANVAS and ST_DIALOG:
             st.warning("No prediction available to measure.")
             return
         display_mode = st.session_state.get("measure_display_mode", "Default")
-        _m_clamp = st.session_state.get(
-            "measure_clamp_only", st.session_state.get("measure_clip_bounds", False)
-        )
+        _m_clamp = st.session_state.get("measure_clamp_only", False)
         display_heatmap = apply_display_scale(
             raw_heatmap, display_mode,
-            min_percentile=st.session_state.get("measure_min_percentile", 0),
-            max_percentile=st.session_state.get("measure_max_percentile", 100),
             clip_min=st.session_state.get("measure_clip_min", 0),
             clip_max=st.session_state.get("measure_clip_max", 1),
             clamp_only=_m_clamp,
@@ -102,15 +98,12 @@ def _get_measure_dialog_fn():
 
 def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, colormap_name,
                                     display_mode, auto_cell_boundary, cell_mask=None,
-                                    min_percentile=0, max_percentile=100, clip_min=0, clip_max=1,
-                                    clamp_only=False):
+                                    clip_min=0, clip_max=1, clamp_only=False):
     """Populate session state for the measure tool. If cell_mask is None and auto_cell_boundary, computes it."""
     if cell_mask is None and auto_cell_boundary:
         cell_mask = estimate_cell_mask(heatmap)
     st.session_state["measure_raw_heatmap"] = heatmap.copy()
     st.session_state["measure_display_mode"] = display_mode
-    st.session_state["measure_min_percentile"] = min_percentile
-    st.session_state["measure_max_percentile"] = max_percentile
     st.session_state["measure_clip_min"] = clip_min
     st.session_state["measure_clip_max"] = clip_max
     st.session_state["measure_clamp_only"] = clamp_only
@@ -252,7 +245,7 @@ with st.sidebar:
     if model_type == "single_cell":
         try:
             with st.container(border=False, key="s2f_grp_conditions"):
-                st.markdown('<p style="font-size: 0.95rem; font-weight: 500; margin-bottom: 0.5rem;">Conditions</p>', unsafe_allow_html=True)
+                st.markdown('<p class="s2f-form-label s2f-form-label--section">Conditions</p>', unsafe_allow_html=True)
                 conditions_source = st.radio(
                     "Conditions",
                     ["From config", "Manually"],
@@ -333,11 +326,10 @@ with st.sidebar:
                 clip_min, clip_max = 0.0, 1.0
             display_mode = "Range"
             clamp_only = False
-        min_percentile, max_percentile = 0, 100
 
     cm_col_lbl, cm_col_sb = st.columns([1, 2])
     with cm_col_lbl:
-        st.markdown('<p class="selectbox-label">Colormap</p>', unsafe_allow_html=True)
+        st.markdown('<p class="s2f-form-label s2f-form-label--colormap">Colormap</p>', unsafe_allow_html=True)
     with cm_col_sb:
         colormap_name = st.selectbox(
             "Colormap",
@@ -438,15 +430,13 @@ def _load_predictor(model_type, checkpoint, ckp_folder):
 
 
 def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, auto_cell_boundary,
-                                     min_percentile, max_percentile, clip_min, clip_max, clamp_only,
+                                     clip_min, clip_max, clamp_only,
                                      download_key_suffix="", check_measure_dialog=False,
                                      show_success=False):
     """Prepare display from cached result and render. Used by both just_ran and has_cached paths."""
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
     display_heatmap = apply_display_scale(
         heatmap, display_mode,
-        min_percentile=min_percentile,
-        max_percentile=max_percentile,
         clip_min=clip_min,
         clip_max=clip_max,
         clamp_only=clamp_only,
@@ -455,7 +445,6 @@ def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, a
     _populate_measure_session_state(
         heatmap, img, pixel_sum, force, key_img, colormap_name,
         display_mode, auto_cell_boundary, cell_mask=cell_mask,
-        min_percentile=min_percentile, max_percentile=max_percentile,
         clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
     )
     if check_measure_dialog and st.session_state.pop("open_measure_dialog", False):
@@ -513,8 +502,6 @@ if just_ran_batch:
                 batch_results,
                 colormap_name=colormap_name,
                 display_mode=display_mode,
-                min_percentile=min_percentile,
-                max_percentile=max_percentile,
                 clip_min=clip_min,
                 clip_max=clip_max,
                 auto_cell_boundary=auto_cell_boundary,
@@ -531,8 +518,6 @@ elif batch_mode and st.session_state.get("batch_results"):
         st.session_state["batch_results"],
         colormap_name=colormap_name,
         display_mode=display_mode,
-        min_percentile=min_percentile,
-        max_percentile=max_percentile,
         clip_min=clip_min,
         clip_max=clip_max,
         auto_cell_boundary=auto_cell_boundary,
@@ -561,7 +546,7 @@ elif just_ran:
             st.session_state["prediction_result"] = r
             _prepare_and_render_cached_result(
                 r, key_img, colormap_name, display_mode, auto_cell_boundary,
-                min_percentile, max_percentile, clip_min, clip_max, clamp_only,
+                clip_min, clip_max, clamp_only,
                 download_key_suffix="", check_measure_dialog=False,
                 show_success=True,
             )
@@ -573,7 +558,7 @@ elif has_cached:
     r = st.session_state["prediction_result"]
     _prepare_and_render_cached_result(
         r, key_img, colormap_name, display_mode, auto_cell_boundary,
-        min_percentile, max_percentile, clip_min, clip_max, clamp_only,
+        clip_min, clip_max, clamp_only,
         download_key_suffix="_cached", check_measure_dialog=True,
         show_success=False,
     )
