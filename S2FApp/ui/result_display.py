@@ -26,7 +26,6 @@ from ui.measure_tool import (
 _HISTOGRAM_ACCENT = "#0d9488"
 _RESULT_FIG_HEIGHT = 320
 _HISTOGRAM_HEIGHT = 180
-_BATCH_PREVIEW_LIMIT = 3
 
 
 def _result_banner(badge: str, badge_class: str, title: str) -> str:
@@ -79,49 +78,25 @@ def render_batch_results(batch_results, colormap_name="Jet", display_mode="Defau
         csv_rows.append([os.path.splitext(key)[0]] + row[1:])
     st.markdown(_result_banner("INPUT", "input", "Bright-field images"), unsafe_allow_html=True)
     n_cols = min(5, len(batch_results))
-    preview_count = min(_BATCH_PREVIEW_LIMIT, len(batch_results))
-    preview_results = batch_results[:preview_count]
-    remaining_results = batch_results[preview_count:]
-    bf_cols = st.columns(min(n_cols, preview_count))
-    for i, r in enumerate(preview_results):
+    bf_cols = st.columns(n_cols)
+    for i, r in enumerate(batch_results):
         img = r["img"]
         if img.ndim == 2:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         else:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        with bf_cols[i % min(n_cols, preview_count)]:
+        with bf_cols[i % n_cols]:
             st.image(img_rgb, caption=r["key_img"], use_container_width=True)
     is_rescale_b = is_display_range_remapped(display_mode, clip_min, clip_max)
     st.markdown(_result_banner("OUTPUT", "output", "Predicted force maps"), unsafe_allow_html=True)
-    hm_cols = st.columns(min(n_cols, preview_count))
-    for i, r in enumerate(preview_results):
+    hm_cols = st.columns(n_cols)
+    for i, r in enumerate(batch_results):
         hm_rgb = heatmap_to_rgb_with_contour(
             r["_display_heatmap"], colormap_name,
             r.get("_cell_mask") if auto_cell_boundary else None,
         )
-        with hm_cols[i % min(n_cols, preview_count)]:
+        with hm_cols[i % n_cols]:
             st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
-    if remaining_results:
-        with st.expander(f"Show remaining batch previews ({len(remaining_results)})", expanded=False):
-            st.markdown(_result_banner("INPUT", "input", "Remaining bright-field images"), unsafe_allow_html=True)
-            rem_bf_cols = st.columns(min(5, len(remaining_results)))
-            for i, r in enumerate(remaining_results):
-                img = r["img"]
-                if img.ndim == 2:
-                    img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-                else:
-                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                with rem_bf_cols[i % min(5, len(remaining_results))]:
-                    st.image(img_rgb, caption=r["key_img"], use_container_width=True)
-            st.markdown(_result_banner("OUTPUT", "output", "Remaining predicted force maps"), unsafe_allow_html=True)
-            rem_hm_cols = st.columns(min(5, len(remaining_results)))
-            for i, r in enumerate(remaining_results):
-                hm_rgb = heatmap_to_rgb_with_contour(
-                    r["_display_heatmap"], colormap_name,
-                    r.get("_cell_mask") if auto_cell_boundary else None,
-                )
-                with rem_hm_cols[i % min(5, len(remaining_results))]:
-                    st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
     render_horizontal_colorbar(colormap_name, clip_min, clip_max, is_rescale_b)
     # Table
     st.dataframe(
