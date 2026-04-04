@@ -16,12 +16,17 @@ if S2F_ROOT not in sys.path:
 
 from models.s2f_model import create_settings_channels
 from utils.substrate_settings import compute_settings_normalization
-from utils.metrics import calculate_psnr, calculate_ssim_tensor, calculate_pearson_correlation
+from utils.metrics import (
+    WFMRMELoss,
+    calculate_psnr,
+    calculate_ssim_tensor,
+    calculate_pearson_correlation,
+)
 from scipy.stats import pearsonr
 
 
 class S2FLoss(nn.Module):
-    """S2F loss: reconstruction (L1) + GAN + optional force consistency."""
+    """S2F loss: reconstruction (WFM-RME by default) + GAN + optional force consistency."""
     def __init__(self, lambda_L1=100.0, lambda_gan=1.0, lambda_force=1.0,
                  gan_mode='vanilla', custom_loss=None, use_force_consistency=False,
                  force_consistency_target='mean'):
@@ -32,7 +37,7 @@ class S2FLoss(nn.Module):
         self.gan_mode = gan_mode
         self.use_force_consistency = use_force_consistency
         self.force_consistency_target = force_consistency_target
-        self.reconstruction_loss = custom_loss if custom_loss is not None else nn.L1Loss()
+        self.reconstruction_loss = custom_loss if custom_loss is not None else WFMRMELoss()
         self.force_consistency_loss = nn.MSELoss() if use_force_consistency else None
         self.gan_loss = nn.BCEWithLogitsLoss() if gan_mode == 'vanilla' else nn.MSELoss()
 

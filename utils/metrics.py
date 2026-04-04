@@ -106,6 +106,36 @@ def _force_mag_wfm(f):
     return np.sqrt(fx**2 + fy**2)
 
 
+def _force_magnitude_tensor(x: torch.Tensor) -> torch.Tensor:
+    """Per-pixel force magnitude: (B,1,H,W) uses channel 0 as magnitude; (B,2+,H,W) uses sqrt(fx^2+fy^2)."""
+    if x.dim() != 4:
+        raise ValueError(f"Expected 4D tensor, got shape {tuple(x.shape)}")
+    c = x.size(1)
+    if c == 1:
+        return x[:, 0]
+    if c >= 2:
+        return torch.sqrt(x[:, 0].pow(2) + x[:, 1].pow(2))
+    raise ValueError(f"Expected at least 1 channel, got {c}")
+
+
+class WFMRMELoss(nn.Module):
+    """Weighted force-magnitude relative error; matches ``wfm_relative_magnitude_error`` (differentiable)."""
+
+    def __init__(self, eps: float = 1e-8):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        mag_t = _force_magnitude_tensor(target)
+        mag_p = _force_magnitude_tensor(pred)
+        if mag_t.shape != mag_p.shape:
+            raise ValueError(f"Shape mismatch after magnitude: {mag_t.shape} vs {mag_p.shape}")
+        fbar = mag_t.mean().clamp_min(self.eps)
+        w = mag_t / fbar
+        rel = (mag_p - mag_t).abs() / (mag_t + self.eps)
+        return (w * rel).mean()
+
+
 def wfm_correlation(y_true, y_pred, mode="magnitude"):
     """Pearson correlation between prediction and ground truth (magnitude mode for heatmaps)."""
     t = _ensure_shape_wfm(_to_numpy_wfm(y_true))
