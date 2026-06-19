@@ -8,6 +8,7 @@ tags:
   - gan
 license: mit
 ---
+[![DOI](https://zenodo.org/badge/1164156159.svg)](https://doi.org/10.5281/zenodo.20759318)
 
 # Shape2Force (S2F)
 
