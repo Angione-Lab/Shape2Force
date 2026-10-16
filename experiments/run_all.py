@@ -52,7 +52,7 @@ def gpu_queue(queue, gpus, num_workers, extra=()):
                 run_dir = os.path.join(RUNS_DIR, f"{v}_seed{seed}")
                 os.makedirs(run_dir, exist_ok=True)
                 log = open(os.path.join(run_dir, "train.log"), "a")
-                env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu, PYTHONUNBUFFERED="1")
+                env = dict(os.environ, CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu, PYTHONUNBUFFERED="1")  # same numbering as nvidia-smi
                 cmd = [sys.executable, "-m", "experiments.train", "--variant", v, "--seed", seed, "--resume",
                        "--num-workers", num_workers] + list(extra)
                 running[gpu] = (subprocess.Popen(cmd, cwd=S2F_ROOT, env=env, stdout=log, stderr=subprocess.STDOUT), v, seed, log)

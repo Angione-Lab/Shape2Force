@@ -15,6 +15,7 @@ Outputs (experiments/results/eval/ by default; existing rows of other models are
 """
 import argparse
 import glob
+import json
 import os
 import time
 
@@ -63,8 +64,13 @@ def stage1_model(path, device):
 def run_models(device, pattern):
     out = {}
     for p in sorted(glob.glob(pattern)):
+        h = os.path.join(os.path.dirname(p), "history.json")
         ck = torch.load(p, map_location="cpu", weights_only=False)
         cfg = ck["config"]
+        done = os.path.exists(h) and len(json.load(open(h))) >= cfg.get("epochs", 0)
+        if not done and not os.environ.get("S2F_EVAL_UNFINISHED"):
+            print(f"  skipping unfinished run {os.path.basename(os.path.dirname(p))} (set S2F_EVAL_UNFINISHED=1 to include)")
+            continue
         g = build_generator(**cfg); g.load_state_dict(ck["generator_state_dict"], strict=True)
         name = os.path.basename(os.path.dirname(p))
         out[name] = dict(model=g.to(device).eval(), kind="singlecell", in_channels=cfg["in_channels"], tanh=True,
