@@ -13,4 +13,4 @@ S2FApp/ckp/spheroid/ckp_spheroid_GN.pth
 S2FApp/*.docx
 
 # experiments: trained ablation checkpoints (large)
-experiments/runs/
+experiments/runs*/

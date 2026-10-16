@@ -3,15 +3,16 @@ Train one baseline / ablation variant with the shared protocol (experiments/conf
 
     python -m experiments.train --variant s2f_full
     python -m experiments.train --variant unet --seed 1
-    python -m experiments.train --variant s2f_no_gan --resume          # continue from last_checkpoint.pth
-    python -m experiments.train --variant unet --epochs 1 --max-batches 5   # smoke test
+    python -m experiments.train --variant s2f_no_gan --resume          # continue an interrupted run
+    python -m experiments.train --variant unet --epochs 1 --max-batches 5   # smoke test (1 epoch per phase)
 
-Outputs in experiments/runs/<variant>_seed<seed>/:
+Two phases (see experiments/configs.py). Outputs in experiments/runs/<variant>_seed<seed>/:
     config.json            exact configuration used
-    history.json           per-epoch losses (each generator loss term separately), lr, time
-    best_checkpoint.pth    generator weights at the lowest validation reconstruction loss
-    last_checkpoint.pth    full state for --resume
-    visualizations/        predictions on the first validation batch every 10 epochs
+    phase1/, phase2/       per phase: history.json (every loss term, val loss / WFM-RME / pixel r, lr, time),
+                           best_checkpoint.pth (lowest validation loss of that phase), last_checkpoint.pth
+                           (full state for --resume), visualizations/ (first validation batch every 10 epochs)
+    best_checkpoint.pth    final model = best phase-2 generator (written when the run is complete)
+    history.json           both phases concatenated (written when the run is complete)
 The training loop follows training/s2f_trainer.py (same losses, label convention and update order);
 it additionally skips the discriminator when lambda_gan = 0, records every loss term, and seeds all RNGs.
 """
@@ -20,6 +21,7 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 
 import numpy as np
@@ -30,7 +32,7 @@ import torch.nn.functional as F
 from experiments.ablation_models import build_discriminator, build_generator, n_params
 from experiments.configs import get_config
 from experiments.layout import DEFAULT_DATASET_ROOT, RUNS_DIR, S2F_ROOT
-from experiments.losses import PerImageWFMRMELoss
+from experiments.losses import REC_LOSSES, PerImageWFMRMELoss
 from experiments.manifest_data import make_loader
 from models.s2f_model import create_settings_channels
 from utils.substrate_settings import compute_settings_normalization
@@ -77,6 +79,101 @@ def save_vis(G, val_loader, cfg, norm, device, path):
     fig.tight_layout(); fig.savefig(path, dpi=100); plt.close(fig)
 
 
+def pixel_r(p, y):
+    """Mean per-image Pearson correlation between predicted and true maps (monitoring only)."""
+    p, y = p.flatten(1), y.flatten(1)
+    p, y = p - p.mean(1, keepdim=True), y - y.mean(1, keepdim=True)
+    return ((p * y).sum(1) / (p.norm(dim=1) * y.norm(dim=1) + 1e-12)).mean()
+
+
+def _done(phase_dir, epochs):
+    h = os.path.join(phase_dir, "history.json")
+    return (os.path.exists(h) and len(json.load(open(h))) >= epochs
+            and os.path.exists(os.path.join(phase_dir, "best_checkpoint.pth")))
+
+
+def run_phase(G, ph, phase_dir, cfg, train_loader, val_loader, norm, device, resume, max_batches):
+    """One training phase. Fresh discriminator, optimisers and schedule (as in the original staged training);
+    the generator continues from its current weights. Checkpoint selection: lowest validation loss of this phase."""
+    os.makedirs(os.path.join(phase_dir, "visualizations"), exist_ok=True)
+    use_gan = cfg["lambda_gan"] > 0
+    D = build_discriminator(cfg["in_channels"]).to(device) if use_gan else None
+    g_opt = torch.optim.Adam(G.parameters(), lr=ph["g_lr"], betas=(cfg["beta1"], cfg["beta2"]))
+    d_opt = torch.optim.Adam(D.parameters(), lr=ph["d_lr"], betas=(cfg["beta1"], cfg["beta2"])) if use_gan else None
+    n_batches = min(len(train_loader), max_batches) if max_batches else len(train_loader)
+    steps = n_batches * ph["epochs"]
+    g_sch = cosine_with_warmup(g_opt, int(steps * cfg["warmup_frac"]), steps)
+    d_sch = cosine_with_warmup(d_opt, int(steps * cfg["warmup_frac"]), steps) if use_gan else None
+    rec_loss, rme, bce = REC_LOSSES[ph["rec_loss"]](), PerImageWFMRMELoss(), nn.BCEWithLogitsLoss()
+    hist, best, start = [], float("inf"), 0
+    last_path = os.path.join(phase_dir, "last_checkpoint.pth")
+    if resume and os.path.exists(last_path):
+        ck = torch.load(last_path, map_location="cpu", weights_only=False)
+        G.load_state_dict(ck["generator_state_dict"]); g_opt.load_state_dict(ck["g_optimizer"]); g_sch.load_state_dict(ck["g_scheduler"])
+        if use_gan:
+            D.load_state_dict(ck["discriminator_state_dict"]); d_opt.load_state_dict(ck["d_optimizer"]); d_sch.load_state_dict(ck["d_scheduler"])
+        hist, best, start = ck["history"], ck["best_val_loss"], ck["epoch"] + 1
+        print(f"[{ph['name']}] resumed at epoch {start}")
+    print(f"[{ph['name']}] {ph['epochs']} epochs, loss {ph['rec_loss']} x{ph['lambda_rec']:g}, "
+          f"GAN x{cfg['lambda_gan']:g}, force x{ph['lambda_force']:g}, lr {ph['g_lr']:g}", flush=True)
+
+    for epoch in range(start, ph["epochs"]):
+        t0 = time.time(); G.train(); D.train() if use_gan else None
+        acc = dict(g=0.0, rec=0.0, gan=0.0, force=0.0, d=0.0); nb = 0
+        for bi, batch in enumerate(train_loader):
+            if max_batches and bi >= max_batches:
+                break
+            x = add_settings(batch[0].to(device), batch, cfg, norm, device)
+            y = batch[1].to(device)
+            fake = G(x); p = (fake + 1) / 2
+            l_rec = rec_loss(p, y)
+            l_force = F.mse_loss(p.flatten(1).mean(1), y.flatten(1).mean(1))
+            l_gan = torch.zeros((), device=device)
+            if use_gan:
+                pf = D(torch.cat([x, fake], 1)); l_gan = bce(pf, torch.ones_like(pf))
+            l_g = ph["lambda_rec"] * l_rec + cfg["lambda_gan"] * l_gan + ph["lambda_force"] * l_force
+            g_opt.zero_grad(); l_g.backward(); g_opt.step()
+            l_d = torch.zeros(())
+            if use_gan:
+                pr = D(torch.cat([x, y * 2 - 1], 1)); pf = D(torch.cat([x, fake.detach()], 1))
+                l_d = 0.5 * (bce(pr, torch.ones_like(pr)) + bce(pf, torch.zeros_like(pf)))
+                d_opt.zero_grad(); l_d.backward(); d_opt.step(); d_sch.step()
+            g_sch.step()
+            for k, v in zip(acc, [l_g, l_rec, l_gan, l_force, l_d]):
+                acc[k] += float(v.detach())
+            nb += 1
+        G.eval(); v = dict(rec=0.0, rme=0.0, mse=0.0, r=0.0); nv = 0
+        with torch.no_grad():
+            for bi, batch in enumerate(val_loader):
+                if max_batches and bi >= max_batches:
+                    break
+                x = add_settings(batch[0].to(device), batch, cfg, norm, device); y = batch[1].to(device)
+                p = (G(x) + 1) / 2
+                v["rec"] += float(rec_loss(p, y)); v["rme"] += float(rme(p, y))
+                v["mse"] += float(F.mse_loss(p, y)); v["r"] += float(pixel_r(p, y)); nv += 1
+        h = {"phase": ph["name"], "epoch": epoch, **{f"train_{k}": a / max(nb, 1) for k, a in acc.items()},
+             **{f"val_{k}": a / max(nv, 1) for k, a in v.items()},
+             "g_lr": g_opt.param_groups[0]["lr"], "epoch_seconds": time.time() - t0}
+        hist.append(h)
+        is_best = h["val_rec"] < best
+        best = min(best, h["val_rec"])
+        print(f"[{ph['name']}] epoch {epoch:3d}  G {h['train_g']:.4f} (rec {h['train_rec']:.4f} gan {h['train_gan']:.4f} "
+              f"force {h['train_force']:.5f})  D {h['train_d']:.4f}  val_rec {h['val_rec']:.4f}  "
+              f"val_r {h['val_r']:.3f}  val_rme {h['val_rme']:.3f}  {'*' if is_best else ' '}  {h['epoch_seconds']:.0f}s", flush=True)
+        if is_best:
+            torch.save({"epoch": epoch, "phase": ph["name"], "generator_state_dict": G.state_dict(), "config": cfg,
+                        "val_loss": h["val_rec"], "history": hist}, os.path.join(phase_dir, "best_checkpoint.pth"))
+        state = {"epoch": epoch, "generator_state_dict": G.state_dict(), "g_optimizer": g_opt.state_dict(),
+                 "g_scheduler": g_sch.state_dict(), "history": hist, "best_val_loss": best, "config": cfg}
+        if use_gan:
+            state.update(discriminator_state_dict=D.state_dict(), d_optimizer=d_opt.state_dict(), d_scheduler=d_sch.state_dict())
+        torch.save(state, last_path)
+        json.dump(hist, open(os.path.join(phase_dir, "history.json"), "w"), indent=1)
+        if epoch % 10 == 0 or epoch == ph["epochs"] - 1:
+            save_vis(G, val_loader, cfg, norm, device, os.path.join(phase_dir, "visualizations", f"epoch_{epoch:03d}.png"))
+    return hist
+
+
 def train(cfg, run_dir, dataset_root=DEFAULT_DATASET_ROOT, device=None, resume=False, max_batches=None,
           num_workers=2, allow_cpu=False):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,7 +183,7 @@ def train(cfg, run_dir, dataset_root=DEFAULT_DATASET_ROOT, device=None, resume=F
         torch.backends.cudnn.benchmark = True
         print(f"GPU: {torch.cuda.get_device_name(torch.device(device))}  "
               f"(CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'all')})")
-    os.makedirs(os.path.join(run_dir, "visualizations"), exist_ok=True)
+    os.makedirs(run_dir, exist_ok=True)
     seed_everything(cfg["seed"])
     train_loader = make_loader(cfg["train_manifest"], dataset_root, cfg["batch_size"], cfg["img_size"],
                                augment=cfg["augment"], shuffle=True, substrate_mode=cfg["substrate_mode"],
@@ -103,87 +200,38 @@ def train(cfg, run_dir, dataset_root=DEFAULT_DATASET_ROOT, device=None, resume=F
     val_loader = make_loader(cfg["val_manifest"], dataset_root, cfg["batch_size"], cfg["img_size"],
                              substrate_mode=cfg["substrate_mode"], input_mode=cfg["input_mode"])
     norm = compute_settings_normalization(config_path=CONFIG_PATH)
-    use_gan = cfg["lambda_gan"] > 0
     G = build_generator(**cfg).to(device)
-    D = build_discriminator(cfg["in_channels"]).to(device) if use_gan else None
-    cfg = dict(cfg, n_params_generator=n_params(G), n_params_discriminator=n_params(D) if D else 0,
+    n_d = n_params(build_discriminator(cfg["in_channels"])) if cfg["lambda_gan"] > 0 else 0
+    cfg = dict(cfg, n_params_generator=n_params(G), n_params_discriminator=n_d,
                n_train=len(train_loader.dataset), n_val=len(val_loader.dataset), device=str(device),
                torch_version=torch.__version__)
     json.dump(cfg, open(os.path.join(run_dir, "config.json"), "w"), indent=2)
-    print(f"[{cfg['variant']}] G {cfg['n_params_generator']/1e6:.2f} M params, D {cfg['n_params_discriminator']/1e6:.2f} M; "
-          f"train {cfg['n_train']}, val {cfg['n_val']}, device {device}")
+    print(f"[{cfg['variant']}] G {cfg['n_params_generator']/1e6:.2f} M params, D {n_d/1e6:.2f} M; "
+          f"train {cfg['n_train']}, val {cfg['n_val']}, device {device}", flush=True)
 
-    g_opt = torch.optim.Adam(G.parameters(), lr=cfg["g_lr"], betas=(cfg["beta1"], cfg["beta2"]))
-    d_opt = torch.optim.Adam(D.parameters(), lr=cfg["d_lr"], betas=(cfg["beta1"], cfg["beta2"])) if use_gan else None
-    steps = len(train_loader) * cfg["epochs"]
-    g_sch = cosine_with_warmup(g_opt, int(steps * cfg["warmup_frac"]), steps)
-    d_sch = cosine_with_warmup(d_opt, int(steps * cfg["warmup_frac"]), steps) if use_gan else None
-    rec_loss, bce = PerImageWFMRMELoss(), nn.BCEWithLogitsLoss()
-    hist, best, start = [], float("inf"), 0
-
-    last_path = os.path.join(run_dir, "last_checkpoint.pth")
-    if resume and os.path.exists(last_path):
-        ck = torch.load(last_path, map_location="cpu", weights_only=False)
-        G.load_state_dict(ck["generator_state_dict"]); g_opt.load_state_dict(ck["g_optimizer"]); g_sch.load_state_dict(ck["g_scheduler"])
-        if use_gan:
-            D.load_state_dict(ck["discriminator_state_dict"]); d_opt.load_state_dict(ck["d_optimizer"]); d_sch.load_state_dict(ck["d_scheduler"])
-        hist, best, start = ck["history"], ck["best_val_loss"], ck["epoch"] + 1
-        print(f"resumed at epoch {start}")
-
-    for epoch in range(start, cfg["epochs"]):
-        t0 = time.time(); G.train(); D.train() if use_gan else None
-        acc = dict(g=0.0, rec=0.0, gan=0.0, force=0.0, d=0.0); nb = 0
-        for bi, batch in enumerate(train_loader):
-            if max_batches and bi >= max_batches:
-                break
-            x = add_settings(batch[0].to(device), batch, cfg, norm, device)
-            y = batch[1].to(device)
-            fake = G(x); p = (fake + 1) / 2
-            l_rec = rec_loss(p, y)
-            l_force = F.mse_loss(p.flatten(1).mean(1), y.flatten(1).mean(1))
-            l_gan = torch.zeros((), device=device)
-            if use_gan:
-                pf = D(torch.cat([x, fake], 1)); l_gan = bce(pf, torch.ones_like(pf))
-            l_g = cfg["lambda_rec"] * l_rec + cfg["lambda_gan"] * l_gan + cfg["lambda_force"] * l_force
-            g_opt.zero_grad(); l_g.backward(); g_opt.step()
-            l_d = torch.zeros(())
-            if use_gan:
-                pr = D(torch.cat([x, y * 2 - 1], 1)); pf = D(torch.cat([x, fake.detach()], 1))
-                l_d = 0.5 * (bce(pr, torch.ones_like(pr)) + bce(pf, torch.zeros_like(pf)))
-                d_opt.zero_grad(); l_d.backward(); d_opt.step(); d_sch.step()
-            g_sch.step()
-            for k, v in zip(acc, [l_g, l_rec, l_gan, l_force, l_d]):
-                acc[k] += float(v)
-            nb += 1
-        G.eval(); v_rec = v_mse = 0.0; nv = 0
-        with torch.no_grad():
-            for bi, batch in enumerate(val_loader):
-                if max_batches and bi >= max_batches:
-                    break
-                x = add_settings(batch[0].to(device), batch, cfg, norm, device); y = batch[1].to(device)
-                p = (G(x) + 1) / 2
-                v_rec += float(rec_loss(p, y)); v_mse += float(F.mse_loss(p, y)); nv += 1
-        h = {"epoch": epoch, **{f"train_{k}": v / max(nb, 1) for k, v in acc.items()},
-             "val_rec": v_rec / max(nv, 1), "val_mse": v_mse / max(nv, 1),
-             "g_lr": g_opt.param_groups[0]["lr"], "epoch_seconds": time.time() - t0}
-        hist.append(h)
-        is_best = h["val_rec"] < best
-        best = min(best, h["val_rec"])
-        print(f"epoch {epoch:3d}  G {h['train_g']:.4f} (rec {h['train_rec']:.4f} gan {h['train_gan']:.4f} "
-              f"force {h['train_force']:.5f})  D {h['train_d']:.4f}  val_rec {h['val_rec']:.4f}  "
-              f"{'*' if is_best else ' '}  {h['epoch_seconds']:.0f}s", flush=True)
-        json.dump(hist, open(os.path.join(run_dir, "history.json"), "w"), indent=1)
-        if is_best:
-            torch.save({"epoch": epoch, "generator_state_dict": G.state_dict(), "config": cfg,
-                        "val_loss": h["val_rec"], "history": hist}, os.path.join(run_dir, "best_checkpoint.pth"))
-        state = {"epoch": epoch, "generator_state_dict": G.state_dict(), "g_optimizer": g_opt.state_dict(),
-                 "g_scheduler": g_sch.state_dict(), "history": hist, "best_val_loss": best, "config": cfg}
-        if use_gan:
-            state.update(discriminator_state_dict=D.state_dict(), d_optimizer=d_opt.state_dict(), d_scheduler=d_sch.state_dict())
-        torch.save(state, last_path)
-        if epoch % 10 == 0 or epoch == cfg["epochs"] - 1:
-            save_vis(G, val_loader, cfg, norm, device, os.path.join(run_dir, "visualizations", f"epoch_{epoch:03d}.png"))
-    print(f"done. best val_rec {best:.4f}; checkpoints in {run_dir}")
+    all_hist = []
+    for ph in cfg["phases"]:
+        phase_dir = os.path.join(run_dir, ph["name"])
+        shared = cfg.get("share_phase1_with")
+        if ph["name"] == "phase1" and shared and not _done(phase_dir, ph["epochs"]):
+            src = os.path.join(os.path.dirname(run_dir), f"{shared}_seed{cfg['seed']}", "phase1")
+            if _done(src, ph["epochs"]):
+                print(f"[phase1] identical to {shared} (same seed, data and phase-1 settings) - copying {src}")
+                shutil.copytree(src, phase_dir, dirs_exist_ok=True)
+            else:
+                print(f"[phase1] {shared} phase 1 not finished yet - training phase 1 for this run")
+        if _done(phase_dir, ph["epochs"]) and (resume or shared):
+            print(f"[{ph['name']}] already finished - skipping")
+            hist = json.load(open(os.path.join(phase_dir, "history.json")))
+        else:
+            hist = run_phase(G, ph, phase_dir, cfg, train_loader, val_loader, norm, device, resume, max_batches)
+        all_hist += hist
+        best_ck = torch.load(os.path.join(phase_dir, "best_checkpoint.pth"), map_location="cpu", weights_only=False)
+        G.load_state_dict(best_ck["generator_state_dict"])          # next phase starts from this phase's best
+    best_ck["config"] = cfg
+    torch.save(best_ck, os.path.join(run_dir, "best_checkpoint.pth"))   # final model = best of the last phase
+    json.dump(all_hist, open(os.path.join(run_dir, "history.json"), "w"), indent=1)   # written last = run finished
+    print(f"done. final model: {best_ck['phase']} epoch {best_ck['epoch']}, val loss {best_ck['val_loss']:.4f}; in {run_dir}")
     return run_dir
 
 

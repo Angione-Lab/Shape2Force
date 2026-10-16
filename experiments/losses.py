@@ -21,3 +21,24 @@ class PerImageWFMRMELoss(nn.Module):
         rel = (p - t).abs() / (t + self.eps)
         w = t / (t.mean(dim=(1, 2), keepdim=True) + self.eps)
         return (rel * w).mean()
+
+
+class WeightedMSEPlusDiceLoss(nn.Module):
+    """Loss of the image-only training stage of the released model (Archive/src/utils/losses.py,
+    used in Archive/notebooks/train_pix2pix.ipynb with pos_weight=3, threshold=0.2, dice_weight=0.5).
+    Pixels above `threshold` get weight 1 + pos_weight in the MSE; the soft-Dice term rewards overlap of
+    the predicted and true high-force regions. Unlike L1 / WFM-RME it drives the network to localise
+    the force-generating regions when training starts from random weights."""
+    def __init__(self, pos_weight=3.0, threshold=0.2, dice_weight=0.5):
+        super().__init__()
+        self.pos_weight, self.threshold, self.dice_weight = pos_weight, threshold, dice_weight
+
+    def forward(self, pred, target):
+        w = 1.0 + self.pos_weight * (target > self.threshold).float()
+        mse = (w * (pred - target) ** 2).mean()
+        p, t = pred.flatten(1), target.flatten(1)
+        dice = (2 * (p * t).sum(1) + 1e-6) / (p.sum(1) + t.sum(1) + 1e-6)
+        return mse + self.dice_weight * (1 - dice.mean())
+
+
+REC_LOSSES = {"rme": PerImageWFMRMELoss, "wmd": WeightedMSEPlusDiceLoss}
