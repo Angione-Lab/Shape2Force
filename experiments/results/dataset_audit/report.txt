@@ -1,0 +1,86 @@
+legacy root : C:/Users/Kaveh/Documents/cellforce/dataset
+dataset root: C:\Users\Kaveh\Documents\Shape2Force\dataset
+
+  legacy    all_tune/train       n= 280
+  legacy    all_tune/test        n=  81
+  legacy    fibro_split/train    n= 236
+  legacy    fibro_split/test     n=  46
+  legacy    1kpa_new/train       n=  16
+  legacy    1kpa_new/test        n=  15
+  legacy    10kpa_new/train      n=  28
+  legacy    10kpa_new/test       n=  20
+  legacy    1kPa_SET_III         n=  17
+  legacy    DMSO_SET_II          n=  11
+  legacy    Y27632_SET_II        n=  20
+  legacy    Control_SET_I        n=  27
+  legacy    Fibronectin_SET_I    n=  40
+  legacy    TGFB_SET_I           n=  15
+  legacy    Y27632_SET_I         n=  16
+  legacy    U2OS/test            n=  39
+  legacy    Drugs/all            n=  98
+  legacy    spheroid/train       n= 129
+  legacy    spheroid/test        n=  28
+  repository singlecell/train    n= 236
+  repository singlecell/test     n=  46
+  repository spheroid/train      n= 129
+  repository spheroid/test       n=  28
+
+Folders with samples in the legacy tree that are NOT listed in experiments/layout.py:
+  single_cell\01kPa\train  (30 samples)
+  single_cell\10kPa\train  (30 samples)
+  single_cell\10kpa_new\all  (48 samples)
+  single_cell\1kpa_new\all  (31 samples)
+  single_cell\ds\10kpa  (20 samples)
+  single_cell\ds\1kpa  (15 samples)
+  single_cell\ds\u2os  (39 samples)
+  single_cell\fibros\test  (59 samples)
+  single_cell\fibros\train  (223 samples)
+  single_cell\u2os\train  (12 samples)
+  single_cell\U2OS_best_images\test  (8 samples)
+  single_cell\U2OS_best_images\train  (23 samples)
+
+Repository dataset vs legacy:
+  singlecell/train   vs fibro_split/train : shared 236, only repo 0, only legacy 0
+  singlecell/test    vs fibro_split/test  : shared 46, only repo 0, only legacy 0
+  spheroid/train     vs spheroid/train    : shared 128, only repo 0, only legacy 0
+  spheroid/test      vs spheroid/test     : shared 28, only repo 0, only legacy 0
+
+all_tune composition (split x source set):
+  train  10kpa_new/train        28
+  train  1kpa_new/train         16
+  train  fibro_split/train     236
+  val    10kpa_new/test         20
+  val    1kpa_new/test          15
+  val    fibro_split/test       46
+
+all_tune images NOT in the repository dataset (Zenodo v1): 79
+  train  10kpa_new/train        28
+  train  1kpa_new/train         16
+  val    10kpa_new/test         20
+  val    1kpa_new/test          15
+
+Substrate code the original code fed for all_tune folders (folder_name[:4]):
+  train  'Posi' -> fibroblasts_PDMS    236
+  train  'kpan0' -> PDMS_1kPa_3um        16
+  train  'kpan1' -> PDMS_10kPa_3um       28
+  val    'Posi' -> fibroblasts_PDMS     46
+  val    'kpan0' -> PDMS_1kPa_3um        15
+  val    'kpan1' -> PDMS_10kPa_3um       20
+
+Leakage check - independent test sets vs all_tune train+val (must be 0):
+  1kPa_SET_III           0   (of 17)
+  DMSO_SET_II            0   (of 11)
+  Y27632_SET_II          0   (of 20)
+  Control_SET_I          0   (of 27)
+  Fibronectin_SET_I      0   (of 40)
+  TGFB_SET_I             0   (of 15)
+  Y27632_SET_I           0   (of 16)
+  U2OS/test              0   (of 39)
+Validation-set content - legacy 'test' folders inside all_tune/test (val):
+  fibro_split/test      46 of 46 in val;   0 in train
+  1kpa_new/test         15 of 15 in val;   0 in train
+  10kpa_new/test        20 of 20 in val;   0 in train
+
+Copying and writing manifests ...
+  sample folders: {'copied': 264}
+  manifests written to experiments/splits/ - commit them to git

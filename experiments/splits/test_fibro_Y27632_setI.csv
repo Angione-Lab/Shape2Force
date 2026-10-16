@@ -1,0 +1,17 @@
+sample_dir,split,set,condition,cell_type,coating,young_Pa,tfm_pixelsize,ythreshold_Pa,legacy_folder,legacy_substrate_code,substrate_legacy,substrate_nominal,bf_md5
+singlecell_external/fibro_Y27632_setI/Position_02,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_02,Posi,fibroblasts_PDMS,fibroblasts_PDMS,309140990a7a858bb3c6a9760b4dbda5
+singlecell_external/fibro_Y27632_setI/Position_03,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_03,Posi,fibroblasts_PDMS,fibroblasts_PDMS,0be7a62d7b656e9505cd422118932372
+singlecell_external/fibro_Y27632_setI/Position_08,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_08,Posi,fibroblasts_PDMS,fibroblasts_PDMS,c5df3db9d09bee83ed61b15445ef6ef2
+singlecell_external/fibro_Y27632_setI/Position_10,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_10,Posi,fibroblasts_PDMS,fibroblasts_PDMS,fa7ee5e0cd24b6faf98cb0a34e6fa5a6
+singlecell_external/fibro_Y27632_setI/Position_11,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_11,Posi,fibroblasts_PDMS,fibroblasts_PDMS,93db5b92e10e79ca14bef923fae3be58
+singlecell_external/fibro_Y27632_setI/Position_12,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_12,Posi,fibroblasts_PDMS,fibroblasts_PDMS,5bc4b4f3f44ab7be3e433d3ebc0631ee
+singlecell_external/fibro_Y27632_setI/Position_13,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_13,Posi,fibroblasts_PDMS,fibroblasts_PDMS,25823af4b2899ae79f2f28dcfeba7a1c
+singlecell_external/fibro_Y27632_setI/Position_15,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_15,Posi,fibroblasts_PDMS,fibroblasts_PDMS,6b63a1212736fd03ea97eeed24cde95e
+singlecell_external/fibro_Y27632_setI/Position_16,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_16,Posi,fibroblasts_PDMS,fibroblasts_PDMS,7ab414ccc1313f0c7ab4a8e9be3a95ed
+singlecell_external/fibro_Y27632_setI/Position_17,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_17,Posi,fibroblasts_PDMS,fibroblasts_PDMS,4ff0daa0c270f9ffd5939b9c303a9e90
+singlecell_external/fibro_Y27632_setI/Position_19,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_19,Posi,fibroblasts_PDMS,fibroblasts_PDMS,81dcf0ad13b4bd4540f0433fdd850053
+singlecell_external/fibro_Y27632_setI/Position_22,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_22,Posi,fibroblasts_PDMS,fibroblasts_PDMS,e0c9c395501c737cb690aaca14f4c2de
+singlecell_external/fibro_Y27632_setI/Position_23,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_23,Posi,fibroblasts_PDMS,fibroblasts_PDMS,4ff8de5325e9c8e0aab6ec49f52fce07
+singlecell_external/fibro_Y27632_setI/Position_25,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_25,Posi,fibroblasts_PDMS,fibroblasts_PDMS,440703a4e7b38872f21d8c2e4b57a0a4
+singlecell_external/fibro_Y27632_setI/Position_26,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_26,Posi,fibroblasts_PDMS,fibroblasts_PDMS,a72f4c30759906b5eb3c741f8fb44c28
+singlecell_external/fibro_Y27632_setI/Position_27,test,Y27632_SET_I,Y-27632,HFF,collagen I,6000,3.0769,500,Position_27,Posi,fibroblasts_PDMS,fibroblasts_PDMS,4a5882946fb29af2a4a37b605075d759

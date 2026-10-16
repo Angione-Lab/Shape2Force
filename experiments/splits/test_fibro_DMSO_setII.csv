@@ -1,0 +1,12 @@
+sample_dir,split,set,condition,cell_type,coating,young_Pa,tfm_pixelsize,ythreshold_Pa,legacy_folder,legacy_substrate_code,substrate_legacy,substrate_nominal,bf_md5
+singlecell_external/fibro_DMSO_setII/Position_01,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_01,Posi,fibroblasts_PDMS,fibroblasts_PDMS,370644cf9014c6ce1f8ef3c67fa2363c
+singlecell_external/fibro_DMSO_setII/Position_02,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_02,Posi,fibroblasts_PDMS,fibroblasts_PDMS,cc19a37f5c028a9845356fe6c337cda9
+singlecell_external/fibro_DMSO_setII/Position_02b,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_02b,Posi,fibroblasts_PDMS,fibroblasts_PDMS,0c3ec7b819a9c758dba6d540e6d97075
+singlecell_external/fibro_DMSO_setII/Position_05,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_05,Posi,fibroblasts_PDMS,fibroblasts_PDMS,f64b80f4a18724db16ef3742efe6d654
+singlecell_external/fibro_DMSO_setII/Position_06,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_06,Posi,fibroblasts_PDMS,fibroblasts_PDMS,83039fa40e9b5cbd4dc920620c14ce6e
+singlecell_external/fibro_DMSO_setII/Position_08,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_08,Posi,fibroblasts_PDMS,fibroblasts_PDMS,07a6bdcc040ec225e5f18aa6bf90c47c
+singlecell_external/fibro_DMSO_setII/Position_11,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_11,Posi,fibroblasts_PDMS,fibroblasts_PDMS,96dded3f8ea2a30648a5df10231b8dca
+singlecell_external/fibro_DMSO_setII/Position_12,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_12,Posi,fibroblasts_PDMS,fibroblasts_PDMS,21b99930e0667fbef1a802d3ae931f2e
+singlecell_external/fibro_DMSO_setII/Position_14,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_14,Posi,fibroblasts_PDMS,fibroblasts_PDMS,3cd48997199749dc08d45520523fa9fa
+singlecell_external/fibro_DMSO_setII/Position_35,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_35,Posi,fibroblasts_PDMS,fibroblasts_PDMS,4bcf896ae0a6893742b13ba3b948d4cb
+singlecell_external/fibro_DMSO_setII/Position_47,test,DMSO_SET_II,DMSO,HFF,collagen I,6000,3.0769,500,Position_47,Posi,fibroblasts_PDMS,fibroblasts_PDMS,d8aef4a461b5dc1f56bfa54bf286dfe4

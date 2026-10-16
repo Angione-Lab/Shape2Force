@@ -1,0 +1,7 @@
+alltune_split,legacy_substrate_code,n,config_key_fed_to_model
+train,Posi,236,fibroblasts_PDMS
+train,kpan0,16,PDMS_1kPa_3um
+train,kpan1,28,PDMS_10kPa_3um
+val,Posi,46,fibroblasts_PDMS
+val,kpan0,15,PDMS_1kPa_3um
+val,kpan1,20,PDMS_10kPa_3um

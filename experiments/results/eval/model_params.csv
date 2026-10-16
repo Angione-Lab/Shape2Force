@@ -1,0 +1,5 @@
+model,n_params_M,epoch,val_loss
+released_singlecell,77.002341,,
+released_spheroid_GN,77.000613,,
+supervised_spheroid_FN,11.783428,,
+stage1_image_only,77.000613,,
