@@ -53,6 +53,14 @@ VARIANTS = {
     "s2f_bridge_no_cbam":     dict(bridge="cnn"),
     "s2f_bridge_plain":       dict(bridge="plain"),
     "s2f_no_attention_gates": dict(attention_gates=False),
+    # image-only (no substrate channels) counterparts: the substrate channels did not help (2 seeds), so the
+    # architecture and adversarial-loss comparisons are repeated on the image-only reference 's2f_no_substrate'
+    "unet_no_substrate":                 dict(arch="unet", lambda_gan=0.0, in_channels=1, substrate_mode="none"),
+    "unet_gan_no_substrate":             dict(arch="unet", in_channels=1, substrate_mode="none"),
+    "s2f_no_substrate_no_gan":           dict(in_channels=1, substrate_mode="none", lambda_gan=0.0),
+    "s2f_no_substrate_no_multiscale":    dict(in_channels=1, substrate_mode="none", use_multi_scale_input=False),
+    "s2f_no_substrate_bridge_plain":     dict(in_channels=1, substrate_mode="none", bridge="plain"),
+    "s2f_no_substrate_no_attention_gates": dict(in_channels=1, substrate_mode="none", attention_gates=False),
 }
 
 # Recommended order if GPU time is limited (S2F about 7 h per run on an RTX A6000, U-Net about 2.5 h)
