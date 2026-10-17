@@ -41,9 +41,12 @@ def finished(variant, seed):
     return len(json.load(open(h))) >= get_config(variant)["epochs"]
 
 
-def gpu_queue(queue, gpus, num_workers, extra=()):
-    """Run training jobs in parallel, one per GPU (each job sees only its GPU as cuda:0)."""
-    running, failed = {}, []
+def gpu_queue(queue, gpus, num_workers, extra=(), max_retries=2):
+    """Run training jobs in parallel, one per GPU (each job sees only its GPU as cuda:0).
+    A job that crashes (e.g. Windows access violation 3221225477) is re-queued and resumes from its last
+    epoch checkpoint, up to `max_retries` times. Python is started with -X faulthandler so that a native
+    crash writes the stack trace into train.log."""
+    running, failed, tries = {}, [], {}
     queue = list(queue)
     while queue or running:
         for gpu in gpus:
@@ -53,18 +56,25 @@ def gpu_queue(queue, gpus, num_workers, extra=()):
                 os.makedirs(run_dir, exist_ok=True)
                 log = open(os.path.join(run_dir, "train.log"), "a")
                 env = dict(os.environ, CUDA_DEVICE_ORDER="PCI_BUS_ID", CUDA_VISIBLE_DEVICES=gpu, PYTHONUNBUFFERED="1")  # same numbering as nvidia-smi
-                cmd = [sys.executable, "-m", "experiments.train", "--variant", v, "--seed", seed, "--resume",
-                       "--num-workers", num_workers] + list(extra)
+                cmd = [sys.executable, "-X", "faulthandler", "-m", "experiments.train", "--variant", v, "--seed", seed,
+                       "--resume", "--num-workers", num_workers] + list(extra)
                 running[gpu] = (subprocess.Popen(cmd, cwd=S2F_ROOT, env=env, stdout=log, stderr=subprocess.STDOUT), v, seed, log)
                 print(f"[{time.strftime('%H:%M')}] GPU {gpu}: started {v} seed {seed}  (log {run_dir}/train.log)", flush=True)
         time.sleep(10 if extra else 30)
         for gpu, (proc, v, seed, log) in list(running.items()):
             if proc.poll() is not None:
                 log.close(); del running[gpu]
-                status = "finished" if proc.returncode == 0 else f"FAILED (exit {proc.returncode}, see train.log)"
-                if proc.returncode:
+                if proc.returncode == 0:
+                    print(f"[{time.strftime('%H:%M')}] GPU {gpu}: {v} seed {seed} finished", flush=True)
+                    continue
+                tries[(v, seed)] = tries.get((v, seed), 0) + 1
+                if tries[(v, seed)] <= max_retries:
+                    queue.insert(0, (v, seed))
+                    print(f"[{time.strftime('%H:%M')}] GPU {gpu}: {v} seed {seed} crashed (exit {proc.returncode}); "
+                          f"resuming from last checkpoint (retry {tries[(v, seed)]}/{max_retries})", flush=True)
+                else:
                     failed.append((v, seed))
-                print(f"[{time.strftime('%H:%M')}] GPU {gpu}: {v} seed {seed} {status}", flush=True)
+                    print(f"[{time.strftime('%H:%M')}] GPU {gpu}: {v} seed {seed} FAILED (exit {proc.returncode}, see train.log)", flush=True)
     if failed:
         print(f"failed jobs: {failed}")
 

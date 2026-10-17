@@ -62,8 +62,8 @@ LEGACY_SETS = {
     "Y27632_SET_I": ("single_cell/Drugs/Fibros_Y27632_SET_I_for_Kaveh", "external", "fibro_Y27632_setI", dict(FIBRO_6KPA, condition="Y-27632")),
     "U2OS/test": ("single_cell/u2os/test", "external", "u2os_6kPa", dict(cell_type="U2OS", coating="collagen I", young_Pa=6000, tfm_pixelsize=6.1538, ythreshold_Pa=500, condition="U2OS")),
     "Drugs/all": ("single_cell/Drugs/all", "union", None, {}),
-    "spheroid/train": ("spheroid/train", "published", "spheroid_train", dict(cell_type="LS174T spheroid", coating="collagen I", ythreshold_Pa=200, condition="spheroid")),
-    "spheroid/test": ("spheroid/test", "published", "spheroid_val", dict(cell_type="LS174T spheroid", coating="collagen I", ythreshold_Pa=200, condition="spheroid")),
+    "spheroid/train": ("spheroid/train", "published", "spheroid_train", dict(cell_type="LS174T spheroid", coating="collagen I", ythreshold_Pa=50, condition="spheroid")),
+    "spheroid/test": ("spheroid/test", "published", "spheroid_val", dict(cell_type="LS174T spheroid", coating="collagen I", ythreshold_Pa=50, condition="spheroid")),
 }
 
 # Published repository dataset (S2F/dataset), relative paths

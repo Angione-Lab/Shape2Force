@@ -8,7 +8,7 @@ Evaluate released checkpoints, baselines and trained ablation runs on every spli
 
 Metrics are computed PER IMAGE (mean and SD are then taken across images):
     mse, ms_ssim, pixel_r (Pearson), rme (per-image WFM-RME), mean_gt / mean_pred (heatmap units),
-    mean_gt_Pa / mean_pred_Pa (x colour-scale limit of the set, 500 Pa single cells, 200 Pa spheroids),
+    mean_gt_Pa / mean_pred_Pa (x colour-scale limit of the set, 500 Pa single cells, 50 Pa spheroids),
     gt_frac_saturated (pixels >= 0.98 of the colour limit), inference time.
 Outputs (experiments/results/eval/ by default; existing rows of other models are kept):
     per_image.csv, summary.csv
@@ -116,7 +116,7 @@ def evaluate_one(name, spec, manifest, dataset_root, device, mw, norm, substrate
             for i in range(y.size(0)):
                 r = rows_meta[k]; k += 1
                 t, q = y[i:i + 1], p[i:i + 1]
-                yt = float(r.get("ythreshold_Pa") or (200 if "spheroid" in manifest else 500))
+                yt = float(r.get("ythreshold_Pa") or (50 if "spheroid" in manifest else 500))
                 out.append({"model": name, "manifest": manifest, "substrate_mode": substrate_mode if use_settings else "n/a",
                             "sample_dir": r["sample_dir"], "set": r.get("set", ""), "condition": r.get("condition", ""),
                             "mse": mw.compute_mse(t, q), "ms_ssim": mw.compute_ms_ssim(t, q),
