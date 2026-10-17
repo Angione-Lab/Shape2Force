@@ -129,7 +129,8 @@ def evaluate_one(name, spec, manifest, dataset_root, device, mw, norm, substrate
 
 
 def summarise(df):
-    g = df.groupby(["model", "manifest", "substrate_mode"])
+    df = df.assign(substrate_mode=df["substrate_mode"].fillna("none"))   # "n/a" is read back from CSV as NaN
+    g = df.groupby(["model", "manifest", "substrate_mode"], dropna=False)
     s = g.agg(n=("mse", "size"), **{f"{m}_{f}": (m, f) for m in ["mse", "ms_ssim", "pixel_r", "rme", "mean_gt_Pa",
                                                                    "mean_pred_Pa", "gt_frac_saturated"] for f in ["mean", "std"]},
               seconds_per_image=("seconds_per_image", "mean")).reset_index()
