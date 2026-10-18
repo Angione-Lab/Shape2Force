@@ -365,8 +365,8 @@ def create_measure_pdf_report(bf_img, heatmap_labeled_rgb, table_rows, base_name
     Image.fromarray(heatmap_labeled_rgb).save(hm_labeled_buf, format="PNG")
     hm_labeled_buf.seek(0)
     c.drawImage(ImageReader(hm_labeled_buf), hm_x, img_bottom, width=img_w, height=img_h, preserveAspectRatio=True)
-    hm_label_w = c.stringWidth("Force map", "Helvetica", 9)
-    c.drawString(hm_x + (img_w - hm_label_w) / 2, img_bottom - 14, "Force map")
+    hm_label_w = c.stringWidth("Traction stress map", "Helvetica", 9)
+    c.drawString(hm_x + (img_w - hm_label_w) / 2, img_bottom - 14, "Traction stress map")
 
     # Spacing: one line between images/labels and measurements section
     row_height = 14

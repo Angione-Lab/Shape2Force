@@ -214,7 +214,7 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
         left_col, right_col = st.columns(2, gap=None)
         with left_col:
             draw_mode = st.selectbox("Tool", DRAW_TOOLS, format_func=lambda x: TOOL_LABELS[x], key=f"draw_mode_region_{key_suffix}")
-            st.caption("Left-click add, right-click close.  \nForce map (draw region)")
+            st.caption("Left-click add, right-click close.  \nTraction stress map (draw region)")
             canvas_result = st_canvas(
                 fill_color="rgba(0, 188, 212, 0.25)", stroke_width=2, stroke_color="#00bcd4",
                 background_image=pil_bg, drawing_mode=draw_mode, update_streamlit=True,

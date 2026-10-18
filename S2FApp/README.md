@@ -52,8 +52,8 @@ Checkpoints are downloaded automatically from the [Shape2Force model repo](https
 - **Downloads**: map PNG (scale bar + colourbar), CSV with metrics and parameters, and a PDF report that records the
   input file, model, checkpoint SHA-256, substrate setting, pixel size, display and force-region settings and app
   version. Batch mode gives a PDF (summary table + one page per image), a CSV, and a ZIP with, per image, the PNG and a
-  TIFF whose pixel values are traction stress in Pa (for measurements in Fiji/ImageJ). Set `S2F_APP_COMMIT` to add
-  the git commit.
+  TIFF whose pixel values are traction stress in Pa (for measurements in Fiji/ImageJ). Reports record the app version
+  (`APP_VERSION` in `config/constants.py`; bump it and tag the GitHub release on each deploy).
 
 ## Full Project
 

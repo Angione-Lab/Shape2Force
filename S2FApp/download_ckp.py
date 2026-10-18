@@ -14,8 +14,8 @@ if not has_any:
         repo = os.environ.get("HF_MODEL_REPO", "Angione-Lab/Shape2Force")
         files = list_repo_files(repo)
         pth_files = [f for f in files if f.startswith("ckp/") and f.endswith(".pth")]
-        # All checkpoints: single cell (S2F), spheroid S2F (ckp_spheroid_GN.pth, the model reported in the paper
-        # and the app default) and the smaller supervised spheroid model (ckp_spheroid_FN.pth).
+        # All checkpoints: single cell (S2F), spheroid S2F (ckp_spheroid_GN.pth, the model reported in the paper)
+        # and the smaller supervised spheroid model (ckp_spheroid_FN.pth, the app default).
         for f in pth_files:
             hf_hub_download(repo_id=repo, filename=f, local_dir="/app")
         print("Downloaded checkpoints from", repo)

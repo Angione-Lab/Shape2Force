@@ -229,7 +229,7 @@ with st.sidebar:
             ["single_cell", "spheroid"],
             format_func=lambda x: MODEL_TYPE_LABELS[x],
             horizontal=False,
-            help="Single cell: substrate-aware force prediction. Spheroid: spheroid force maps.",
+            help="Single cell: substrate-aware force prediction. Spheroid: spheroid traction stress maps.",
         )
 
         ckp_folder = get_ckp_folder(ckp_base, model_type)
@@ -362,7 +362,7 @@ with st.sidebar:
             list(COLORMAPS.keys()),
             key="s2f_colormap",
             label_visibility="collapsed",
-            help="Color scheme for the force map. Viridis is often preferred for accessibility.",
+            help="Color scheme for the traction stress map. Viridis is often preferred for accessibility.",
         )
 
 
