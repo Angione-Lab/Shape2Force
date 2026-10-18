@@ -1,4 +1,4 @@
-"""Result display: single and batch prediction views."""
+"""Result display: single and batch prediction views (traction stress in Pa, areas in µm², forces in nN)."""
 import csv
 import io
 import os
@@ -11,21 +11,29 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from utils.display import apply_display_scale, cv_colormap_to_plotly_colorscale, is_display_range_remapped
-from utils.report import heatmap_to_rgb_with_contour, heatmap_to_png_bytes, create_pdf_report
+from utils.report import (create_batch_pdf_report, create_pdf_report, heatmap_figure_png_bytes,
+                          heatmap_to_rgb_with_contour, info_rows)
 from utils.segmentation import estimate_cell_mask
-from ui.heatmaps import render_horizontal_colorbar, add_cell_contour_to_fig
+from utils.units import fmt, make_scale, metric_rows, nice_scale_bar_um, region_metrics, to_pa
+from ui.heatmaps import colorbar_ticks_pa, render_horizontal_colorbar, add_cell_contour_to_fig
 from ui.measure_tool import (
     build_original_vals,
     build_cell_vals,
     render_region_canvas,
-    _compute_cell_metrics,
     HAS_DRAWABLE_CANVAS,
 )
 
 # Histogram bar color (matches static/s2f_styles.css accent)
 _HISTOGRAM_ACCENT = "#0d9488"
-_RESULT_FIG_HEIGHT = 320
+_RESULT_FIG_HEIGHT = 340
 _HISTOGRAM_HEIGHT = 180
+_METRIC_HELP = {
+    "Mean traction stress": "Mean predicted traction-stress magnitude over the region (Pa)",
+    "Max traction stress": "Peak predicted traction-stress magnitude (Pa)",
+    "Area": "Region area in µm² (needs the image pixel size)",
+    "Total force": "Sum of traction stress × pixel area, in nN (needs the image pixel size). Magnitudes only: "
+                   "vector cancellation is not taken into account",
+}
 
 
 def _result_banner(badge: str, badge_class: str, title: str) -> str:
@@ -35,284 +43,266 @@ def _result_banner(badge: str, badge_class: str, title: str) -> str:
     )
 
 
+def _metrics_csv(base_name, metrics_full, metrics_cell, info):
+    """CSV: one row of metrics with units, then the parameters needed to reproduce the prediction."""
+    rows = [["image", "region", "mean_stress_Pa", "max_stress_Pa", "area_um2", "total_force_nN", "n_pixels"]]
+    for region, m in [("whole_field", metrics_full), ("force_region", metrics_cell)]:
+        if m:
+            rows.append([base_name, region, fmt(m["mean_pa"], nd=2), fmt(m["max_pa"], nd=2), fmt(m["area_um2"], nd=1),
+                         fmt(m["total_force_nN"], nd=3), m["n_px"]])
+    rows += [[], ["parameter", "value"]] + [[k.strip(), v] for k, v in info_rows(info)]
+    buf = io.StringIO()
+    csv.writer(buf).writerows(rows)
+    return buf.getvalue()
+
+
+def _add_scale_bar_to_fig(fig, width_px, height_px, um_per_px, row, col):
+    """Draw a µm scale bar (bottom right) on a Plotly image subplot whose axes are in pixels."""
+    if not um_per_px:
+        return
+    length_um = nice_scale_bar_um(width_px * um_per_px)
+    if not length_um:
+        return
+    length_px = length_um / um_per_px
+    m = 0.05 * width_px
+    x1, y = width_px - m, height_px - m
+    xref = "x" if (row, col) == (1, 1) else "x2"
+    yref = "y" if (row, col) == (1, 1) else "y2"
+    fig.add_shape(type="line", x0=x1 - length_px, x1=x1, y0=y, y1=y, xref=xref, yref=yref,
+                  line=dict(color="white", width=4))
+    fig.add_annotation(x=x1 - length_px / 2, y=y - 0.03 * height_px, xref=xref, yref=yref, text=f"{length_um:g} µm",
+                       showarrow=False, font=dict(color="white", size=11))
+
+
 def render_batch_results(batch_results, colormap_name="Jet", display_mode="Default",
-                        clip_min=0, clip_max=1,
-                        auto_cell_boundary=False, clamp_only=False):
+                         clip_min=0, clip_max=1,
+                         auto_cell_boundary=False, clamp_only=False):
     """
-    Render batch prediction results: summary table, bright-field row, heatmap row, and bulk download.
-    batch_results: list of dicts with img, heatmap, force, pixel_sum, key_img, cell_mask.
-    cell_mask is computed on-the-fly when auto_cell_boundary is True and not stored.
+    Render batch prediction results: summary table (units), bright-field row, heatmap row and bulk downloads.
+    batch_results: list of dicts with img, heatmap, key_img, cell_mask, scale, info.
     """
     if not batch_results:
         return
 
-    # Resolve cell_mask and precompute display_heatmap for each result
     for r in batch_results:
         if auto_cell_boundary and (r.get("cell_mask") is None or not np.any(r.get("cell_mask", 0) > 0)):
             r["_cell_mask"] = estimate_cell_mask(r["heatmap"])
         else:
             r["_cell_mask"] = r.get("cell_mask") if auto_cell_boundary else None
-        r["_display_heatmap"] = apply_display_scale(
-            r["heatmap"], display_mode,
-            clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
-        )
-    # Build table rows - consistent column names for both modes
-    headers = ["Image", "Force", "Sum", "Max", "Mean"]
+        r["_display_heatmap"] = apply_display_scale(r["heatmap"], display_mode, clip_min=clip_min, clip_max=clip_max)
+        r["_metrics"] = region_metrics(r["heatmap"], r["_cell_mask"] if auto_cell_boundary else None, r["scale"])
+
+    region = "force region (red contour)" if auto_cell_boundary else "whole field"
+    headers = ["Image", "Mean stress (Pa)", "Max stress (Pa)", "Area (µm²)", "Total force (nN)"]
     rows = []
-    csv_rows = [["image"] + headers[1:]]
+    csv_rows = [["image", "region", "mean_stress_Pa", "max_stress_Pa", "area_um2", "total_force_nN", "n_pixels",
+                 "model", "checkpoint", "checkpoint_sha256", "substrate_setting", "image_um_per_px", "stress_max_Pa",
+                 "app_version"]]
     for r in batch_results:
-        heatmap = r["heatmap"]
-        cell_mask = r.get("_cell_mask")
-        key = r["key_img"] or "image"
-        if auto_cell_boundary and cell_mask is not None and np.any(cell_mask > 0):
-            vals = heatmap[cell_mask > 0]
-            cell_pixel_sum = float(np.sum(vals))
-            cell_force = cell_pixel_sum * (r["force"] / r["pixel_sum"]) if r["pixel_sum"] > 0 else cell_pixel_sum
-            cell_mean = cell_pixel_sum / np.sum(cell_mask) if np.sum(cell_mask) > 0 else 0
-            row = [key, f"{cell_force:.2f}", f"{cell_pixel_sum:.2f}",
-                   f"{np.max(heatmap):.4f}", f"{cell_mean:.4f}"]
-        else:
-            row = [key, f"{r['force']:.2f}", f"{r['pixel_sum']:.2f}",
-                   f"{np.max(heatmap):.4f}", f"{np.mean(heatmap):.4f}"]
-        rows.append(row)
-        csv_rows.append([os.path.splitext(key)[0]] + row[1:])
+        m, key, info = r["_metrics"], r["key_img"] or "image", r.get("info", {})
+        rows.append([key, fmt(m["mean_pa"], nd=1), fmt(m["max_pa"], nd=1), fmt(m["area_um2"], nd=0),
+                     fmt(m["total_force_nN"], nd=2)])
+        sub = info.get("substrate") or {}
+        csv_rows.append([os.path.splitext(key)[0], region, fmt(m["mean_pa"], nd=2), fmt(m["max_pa"], nd=2),
+                         fmt(m["area_um2"], nd=1), fmt(m["total_force_nN"], nd=3), m["n_px"],
+                         info.get("model", {}).get("architecture", ""), info.get("model", {}).get("checkpoint", ""),
+                         info.get("model", {}).get("checkpoint_sha256", ""),
+                         sub.get("name") or (f"manual {sub.get('pixelsize')}/{sub.get('young')}" if sub else ""),
+                         info.get("image_um_per_px") or "", info.get("stress_max_pa", ""), info.get("app_version", "")])
     st.markdown(_result_banner("INPUT", "input", "Bright-field images"), unsafe_allow_html=True)
     n_cols = min(5, len(batch_results))
     bf_cols = st.columns(n_cols)
     for i, r in enumerate(batch_results):
         img = r["img"]
-        if img.ndim == 2:
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        else:
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         with bf_cols[i % n_cols]:
             st.image(img_rgb, caption=r["key_img"], use_container_width=True)
     is_rescale_b = is_display_range_remapped(display_mode, clip_min, clip_max)
-    st.markdown(_result_banner("OUTPUT", "output", "Predicted force maps"), unsafe_allow_html=True)
+    st.markdown(_result_banner("OUTPUT", "output", "Predicted traction-stress maps"), unsafe_allow_html=True)
     hm_cols = st.columns(n_cols)
     for i, r in enumerate(batch_results):
-        hm_rgb = heatmap_to_rgb_with_contour(
-            r["_display_heatmap"], colormap_name,
-            r.get("_cell_mask") if auto_cell_boundary else None,
-        )
+        hm_rgb = heatmap_to_rgb_with_contour(r["_display_heatmap"], colormap_name,
+                                             r.get("_cell_mask") if auto_cell_boundary else None)
         with hm_cols[i % n_cols]:
             st.image(hm_rgb, caption=r["key_img"], use_container_width=True)
-    render_horizontal_colorbar(colormap_name, clip_min, clip_max, is_rescale_b)
-    # Table
-    st.dataframe(
-        {h: [r[i] for r in rows] for i, h in enumerate(headers)},
-        use_container_width=True,
-        hide_index=True,
-    )
-    # Histograms in accordion (one per row for visibility)
-    with st.expander("Force distribution (histograms)", expanded=False):
+    smax = batch_results[0]["scale"]["stress_max_pa"]
+    render_horizontal_colorbar(colormap_name, clip_min, clip_max, is_rescale_b, stress_max_pa=smax)
+    st.dataframe({h: [row[i] for row in rows] for i, h in enumerate(headers)}, use_container_width=True, hide_index=True)
+    st.caption(f"Metrics over the {region}. Area and total force need the image pixel size (sidebar).")
+    with st.expander("Traction-stress distribution (histograms)", expanded=False):
         for i, r in enumerate(batch_results):
-            heatmap = r["heatmap"]
             cell_mask = r.get("_cell_mask")
-            vals = heatmap[cell_mask > 0] if (cell_mask is not None and np.any(cell_mask > 0) and auto_cell_boundary) else heatmap.flatten()
+            vals = to_pa(r["heatmap"], r["scale"])
+            vals = vals[cell_mask > 0] if (cell_mask is not None and np.any(cell_mask > 0) and auto_cell_boundary) else vals.ravel()
             vals = vals[vals > 0] if np.any(vals > 0) else vals
             st.markdown(f"**{r['key_img']}**")
             if len(vals) > 0:
                 fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color=_HISTOGRAM_ACCENT)])
-                fig.update_layout(
-                    height=_HISTOGRAM_HEIGHT, margin=dict(l=40, r=20, t=10, b=40),
-                    xaxis_title="Force value", yaxis_title="Count",
-                    showlegend=False,
-                )
+                fig.update_layout(height=_HISTOGRAM_HEIGHT, margin=dict(l=40, r=20, t=10, b=40),
+                                  xaxis_title="Traction stress (Pa)", yaxis_title="Pixels", showlegend=False)
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.caption("No data")
             if i < len(batch_results) - 1:
                 st.divider()
-    # Bulk downloads: CSV and heatmaps (zip)
     buf_csv = io.StringIO()
     csv.writer(buf_csv).writerows(csv_rows)
+    lo_b, hi_b = (clip_min, clip_max) if is_rescale_b else (0.0, 1.0)
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for r in batch_results:
-            hm_bytes = heatmap_to_png_bytes(
-                r["_display_heatmap"], colormap_name,
-                r.get("_cell_mask") if auto_cell_boundary else None,
-            )
             base = os.path.splitext(r["key_img"] or "image")[0]
-            zf.writestr(f"{base}_heatmap.png", hm_bytes.getvalue())
+            png = heatmap_figure_png_bytes(r["_display_heatmap"], colormap_name,
+                                           r.get("_cell_mask") if auto_cell_boundary else None, r["scale"], lo_b, hi_b)
+            zf.writestr(f"{base}_traction_stress.png", png.getvalue())
+            zf.writestr(f"{base}_traction_stress_Pa.tif", _tiff_pa_bytes(r["heatmap"], r["scale"]))
+        zf.writestr("README.txt", _ZIP_README.format(smax=smax))
     zip_buf.seek(0)
-    dl_col1, dl_col2 = st.columns(2)
+    pdf_items = [dict(img=r["img"], display_heatmap=r["_display_heatmap"], raw_heatmap=r["heatmap"],
+                      base_name=os.path.splitext(r["key_img"] or "image")[0],
+                      cell_mask=r.get("_cell_mask") if auto_cell_boundary else None,
+                      metrics_full=region_metrics(r["heatmap"], None, r["scale"]),
+                      metrics_cell=r["_metrics"] if auto_cell_boundary else None,
+                      info=r.get("info"), scale=r["scale"]) for r in batch_results]
+    pdf_bytes = create_batch_pdf_report(pdf_items, colormap_name, lo_b, hi_b, auto_cell_boundary)
+    dl_col1, dl_col2, dl_col3 = st.columns(3)
     with dl_col1:
-        st.download_button(
-            "Download all as CSV",
-            data=buf_csv.getvalue(),
-            file_name="s2f_batch_results.csv",
-            mime="text/csv",
-            key="download_batch_csv",
-            icon=":material/download:",
-        )
+        st.download_button("Download report (PDF)", data=pdf_bytes, file_name="s2f_batch_report.pdf",
+                           mime="application/pdf", key="download_batch_pdf", icon=":material/picture_as_pdf:",
+                           help="Summary table of all images, then one page per image with maps, metrics and parameters.")
     with dl_col2:
-        st.download_button(
-            "Download all heatmaps",
-            data=zip_buf.getvalue(),
-            file_name="s2f_batch_heatmaps.zip",
-            mime="application/zip",
-            key="download_batch_heatmaps",
-            icon=":material/image:",
-        )
+        st.download_button("Download values (CSV)", data=buf_csv.getvalue(), file_name="s2f_batch_results.csv",
+                           mime="text/csv", key="download_batch_csv", icon=":material/download:",
+                           help="One row per image: metrics with units and the parameters used.")
+    with dl_col3:
+        st.download_button("Download maps (ZIP)", data=zip_buf.getvalue(), file_name="s2f_batch_maps.zip",
+                           mime="application/zip", key="download_batch_heatmaps", icon=":material/image:",
+                           help="For each image: a PNG to view (colourbar and scale bar) and a TIFF whose pixel "
+                                "values are traction stress in Pa, for measurements in Fiji/ImageJ.")
+
+
+_ZIP_README = """Shape2Force (S2F) - predicted traction-stress maps
+
+For each image:
+  <name>_traction_stress.png     picture of the map with colourbar (Pa) and scale bar, for viewing and figures
+  <name>_traction_stress_Pa.tif  the same map as numbers: each pixel value is the predicted traction stress in Pa
+                                 (32-bit, 1024 x 1024). Open it in Fiji/ImageJ to measure regions yourself
+                                 (e.g. draw an ROI and use Analyze > Measure: Mean = mean traction stress in Pa).
+
+Scale: model output 1.0 = {smax:.0f} Pa. S2F predicts the magnitude of the traction stress, not its direction.
+The TIFF covers the whole image resized to 1024 x 1024 pixels; one TIFF pixel = (image width x pixel size / 1024) um.
+"""
+
+
+def _tiff_pa_bytes(heatmap, scale):
+    """Traction-stress map in Pa as a 32-bit float TIFF (readable by Fiji/ImageJ)."""
+    ok, enc = cv2.imencode(".tif", to_pa(heatmap, scale).astype(np.float32))
+    return enc.tobytes() if ok else b""
 
 
 def render_result_display(img, raw_heatmap, display_heatmap, pixel_sum, force, key_img, download_key_suffix="",
-                         colormap_name="Jet", display_mode="Default", measure_region_dialog=None, auto_cell_boundary=True,
-                         cell_mask=None, clip_min=0.0, clip_max=1.0, clamp_only=False):
+                          colormap_name="Jet", display_mode="Default", measure_region_dialog=None, auto_cell_boundary=True,
+                          cell_mask=None, clip_min=0.0, clip_max=1.0, clamp_only=False, scale=None, info=None):
     """
-    Render prediction result: plot, metrics, expander, and download/measure buttons.
-    measure_region_dialog: callable to open measure dialog (when ST_DIALOG available).
-    auto_cell_boundary: when True, use estimated cell area for metrics; when False, use entire map.
-    cell_mask: optional precomputed cell mask; if None and auto_cell_boundary, will be computed.
+    Render one prediction: bright field + traction-stress map (µm scale bars, colourbar in Pa), metrics with
+    units, statistics, and downloads (PNG with scale bar and colourbar, CSV and PDF report with all parameters).
+    scale: utils.units.make_scale(...); info: provenance dict (see app.py).
     """
+    scale = scale or make_scale("single_cell", image_shape=img.shape[:2])
+    smax = scale["stress_max_pa"]
     if cell_mask is None and auto_cell_boundary:
         cell_mask = estimate_cell_mask(raw_heatmap)
     elif not auto_cell_boundary:
         cell_mask = None
-    cell_pixel_sum, cell_force, cell_mean = _compute_cell_metrics(raw_heatmap, cell_mask, pixel_sum, force) if cell_mask is not None else (None, None, None)
-    use_cell_metrics = auto_cell_boundary and cell_pixel_sum is not None and cell_force is not None and cell_mean is not None
-
+    metrics_full = region_metrics(raw_heatmap, None, scale)
+    metrics_cell = region_metrics(raw_heatmap, cell_mask, scale) if (cell_mask is not None and np.any(cell_mask > 0)) else None
+    shown = metrics_cell if (auto_cell_boundary and metrics_cell) else metrics_full
     base_name = os.path.splitext(key_img or "image")[0]
-    if use_cell_metrics:
-        main_csv_rows = [
-            ["image", "Cell sum", "Cell force (scaled)", "Heatmap max", "Heatmap mean"],
-            [base_name, f"{cell_pixel_sum:.2f}", f"{cell_force:.2f}",
-             f"{np.max(raw_heatmap):.4f}", f"{cell_mean:.4f}"],
-        ]
-    else:
-        main_csv_rows = [
-            ["image", "Sum of all pixels", "Force (scaled)", "Heatmap max", "Heatmap mean"],
-            [base_name, f"{pixel_sum:.2f}", f"{force:.2f}",
-             f"{np.max(raw_heatmap):.4f}", f"{np.mean(raw_heatmap):.4f}"],
-        ]
-    buf_main_csv = io.StringIO()
-    csv.writer(buf_main_csv).writerows(main_csv_rows)
-
-    buf_hm = heatmap_to_png_bytes(display_heatmap, colormap_name, cell_mask=cell_mask)
-
     is_rescale = is_display_range_remapped(display_mode, clip_min, clip_max)
+    lo, hi = (clip_min, clip_max) if is_rescale else (0.0, 1.0)
 
     tit1, tit2 = st.columns(2)
     with tit1:
         st.markdown(_result_banner("INPUT", "input", "Bright-field image"), unsafe_allow_html=True)
     with tit2:
-        st.markdown(_result_banner("OUTPUT", "output", "Predicted force map"), unsafe_allow_html=True)
+        st.markdown(_result_banner("OUTPUT", "output", "Predicted traction-stress map"), unsafe_allow_html=True)
     fig_pl = make_subplots(rows=1, cols=2)
-    fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False), row=1, col=1)
-    plotly_colorscale = cv_colormap_to_plotly_colorscale(colormap_name)
-    colorbar_cfg = dict(len=0.4, thickness=12, tickmode="array")
-    tick_positions = [0, 0.25, 0.5, 0.75, 1]
-    if is_rescale:
-        rng = clip_max - clip_min
-        colorbar_cfg["tickvals"] = tick_positions
-        colorbar_cfg["ticktext"] = [f"{clip_min + t * rng:.2f}" for t in tick_positions]
-    else:
-        colorbar_cfg["tickvals"] = tick_positions
-        colorbar_cfg["ticktext"] = [f"{t:.2f}" for t in tick_positions]
-    fig_pl.add_trace(go.Heatmap(z=display_heatmap, colorscale=plotly_colorscale, zmin=0.0, zmax=1.0, showscale=True,
-        colorbar=colorbar_cfg), row=1, col=2)
+    fig_pl.add_trace(go.Heatmap(z=img, colorscale="gray", showscale=False, hoverinfo="skip"), row=1, col=1)
+    ticks, labels = colorbar_ticks_pa(lo, hi, smax)
+    colorbar_cfg = dict(len=0.8, thickness=12, tickmode="array", tickvals=ticks, ticktext=labels,
+                        title=dict(text="Pa", side="top"))
+    fig_pl.add_trace(go.Heatmap(z=display_heatmap, colorscale=cv_colormap_to_plotly_colorscale(colormap_name),
+                                zmin=0.0, zmax=1.0, showscale=True, colorbar=colorbar_cfg,
+                                customdata=to_pa(raw_heatmap, scale),
+                                hovertemplate="x %{x}, y %{y}<br>%{customdata:.1f} Pa<extra></extra>"), row=1, col=2)
     add_cell_contour_to_fig(fig_pl, cell_mask, row=1, col=2)
-    fig_pl.update_layout(
-        height=_RESULT_FIG_HEIGHT,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(scaleanchor="y", scaleratio=1),
-        xaxis2=dict(scaleanchor="y2", scaleratio=1),
-    )
+    _add_scale_bar_to_fig(fig_pl, img.shape[1], img.shape[0], scale.get("image_um_per_px"), 1, 1)
+    _add_scale_bar_to_fig(fig_pl, display_heatmap.shape[1], display_heatmap.shape[0], scale.get("hm_um_per_px_x"), 1, 2)
+    fig_pl.update_layout(height=_RESULT_FIG_HEIGHT, margin=dict(l=10, r=10, t=10, b=10),
+                         xaxis=dict(scaleanchor="y", scaleratio=1), xaxis2=dict(scaleanchor="y2", scaleratio=1))
     fig_pl.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
     fig_pl.update_yaxes(showticklabels=False, autorange="reversed", showgrid=False, zeroline=False)
     st.plotly_chart(fig_pl, use_container_width=True, config={"displayModeBar": True, "responsive": True})
+    if is_rescale:
+        st.caption(f"Display range {lo * smax:.0f}–{hi * smax:.0f} Pa; stresses above {hi * smax:.0f} Pa are shown "
+                   "in the top colour. Metrics always use the full prediction.")
 
-    col1, col2, col3, col4 = st.columns(4)
-    if use_cell_metrics:
-        with col1:
-            st.metric("Cell sum", f"{cell_pixel_sum:.2f}", help="Sum over estimated cell area (background excluded)")
-        with col2:
-            st.metric("Cell force (scaled)", f"{cell_force:.2f}", help="Total traction force in physical units")
-        with col3:
-            st.metric("Heatmap max", f"{np.max(raw_heatmap):.4f}", help="Peak force intensity in the map")
-        with col4:
-            st.metric("Heatmap mean", f"{cell_mean:.4f}", help="Mean force over estimated cell area")
-    else:
-        with col1:
-            st.metric("Sum of all pixels", f"{pixel_sum:.2f}", help="Raw sum of all pixel values in the force map")
-        with col2:
-            st.metric("Force (scaled)", f"{force:.2f}", help="Total traction force in physical units (full field of view)")
-        with col3:
-            st.metric("Heatmap max", f"{np.max(raw_heatmap):.4f}", help="Peak force intensity in the map")
-        with col4:
-            st.metric("Heatmap mean", f"{np.mean(raw_heatmap):.4f}", help="Average force intensity (full FOV)")
+    cols = st.columns(4)
+    for col, (label, value) in zip(cols, metric_rows(shown)):
+        with col:
+            st.metric(label, value, help=_METRIC_HELP[label])
+    st.caption(("Metrics inside the force region (red contour), estimated from the predicted map." if shown is metrics_cell else
+                "Metrics over the whole field of view.")
+               + ("" if scale.get("hm_px_area_um2") else " Enter the image pixel size in the sidebar to get area and total force."))
 
-    # Statistics panel (mean, std, percentiles, histogram)
     with st.expander("Statistics"):
-        vals = raw_heatmap[cell_mask > 0] if (cell_mask is not None and np.any(cell_mask > 0) and use_cell_metrics) else raw_heatmap.flatten()
+        vals = to_pa(raw_heatmap, scale)
+        vals = vals[cell_mask > 0] if (shown is metrics_cell and cell_mask is not None) else vals.ravel()
         if len(vals) > 0:
-            stat_col1, stat_col2, stat_col3 = st.columns(3)
-            p25, p50, p75, p90 = (
-                float(np.percentile(vals, 25)), float(np.percentile(vals, 50)),
-                float(np.percentile(vals, 75)), float(np.percentile(vals, 90)),
-            )
-            with stat_col1:
-                st.metric("Mean", f"{float(np.mean(vals)):.4f}")
-                st.metric("Std", f"{float(np.std(vals)):.4f}")
-            with stat_col2:
-                st.metric("P25", f"{p25:.4f}")
-                st.metric("P50 (median)", f"{p50:.4f}")
-            with stat_col3:
-                st.metric("P75", f"{p75:.4f}")
-                st.metric("P90", f"{p90:.4f}")
-            st.markdown("**Histogram**")
+            c1, c2, c3 = st.columns(3)
+            p25, p50, p75, p90 = (float(np.percentile(vals, q)) for q in (25, 50, 75, 90))
+            with c1:
+                st.metric("Mean", f"{float(np.mean(vals)):.1f} Pa")
+                st.metric("Std", f"{float(np.std(vals)):.1f} Pa")
+            with c2:
+                st.metric("P25", f"{p25:.1f} Pa")
+                st.metric("P50 (median)", f"{p50:.1f} Pa")
+            with c3:
+                st.metric("P75", f"{p75:.1f} Pa")
+                st.metric("P90", f"{p90:.1f} Pa")
             hist_fig = go.Figure(data=[go.Histogram(x=vals, nbinsx=50, marker_color=_HISTOGRAM_ACCENT)])
-            hist_fig.update_layout(
-                height=_HISTOGRAM_HEIGHT, margin=dict(l=40, r=20, t=20, b=40),
-                xaxis_title="Force value", yaxis_title="Count",
-                showlegend=False,
-            )
+            hist_fig.update_layout(height=_HISTOGRAM_HEIGHT, margin=dict(l=40, r=20, t=20, b=40),
+                                   xaxis_title="Traction stress (Pa)", yaxis_title="Pixels", showlegend=False)
             st.plotly_chart(hist_fig, use_container_width=True, config={"displayModeBar": False})
         else:
-            st.caption("No nonzero values to compute statistics.")
+            st.caption("No values to compute statistics.")
+
+    with st.expander("Parameters of this prediction"):
+        st.table({"Parameter": [k for k, _ in info_rows(info)], "Value": [str(v) for _, v in info_rows(info)]})
 
     with st.expander("How to read the results"):
-        if use_cell_metrics:
-            st.markdown("""
-**Input (left):** Bright-field microscopy image of a cell or spheroid on a substrate.  
-This is the raw image you provided—it shows cell shape but not forces.
+        st.markdown(f"""
+**Input (left):** the bright-field image you provided (cell shape only, no force information).
 
-**Output (right):** Predicted traction force map.  
-- **Color** indicates force magnitude: blue = low, red = high  
-- **Brighter/warmer colors** = stronger forces exerted by the cell on the substrate  
-- **Red border = estimated cell area** (background excluded from metrics)
-- Values are normalized to [0, 1] for visualization
+**Output (right):** predicted **traction-stress magnitude** (Pa).
+- The model output is normalised to 0–1, with 1 = **{smax:.0f} Pa**, the fixed colour limit of the
+  {'single-cell' if smax >= 500 else 'spheroid'} ground-truth TFM maps used for training. The colourbar shows Pa.
+- S2F predicts the magnitude only, not the direction, and predictions tend to underestimate the highest stresses.
+- **Range** (sidebar) narrows the displayed window, e.g. 0–250 Pa, to show low-stress patterns; stresses above the
+  window saturate. The metrics are always computed from the full prediction.
+- **Red contour** ("Measure force region only", on by default): the region of high predicted stress, estimated from
+  the map (not the cell outline); the metrics refer to this region so the background does not dilute them.
 
-**Metrics (auto cell boundary on):**
-- **Cell sum:** Sum over estimated cell area (background excluded)
-- **Cell force (scaled):** Total traction force in physical units
-- **Heatmap max:** Peak force intensity in the map
-- **Heatmap mean:** Mean force over the estimated cell area
-            """)
-        else:
-            st.markdown("""
-**Input (left):** Bright-field microscopy image of a cell or spheroid on a substrate.  
-This is the raw image you provided—it shows cell shape but not forces.
+**Metrics:** mean and maximum traction stress (Pa); area (µm²) and total force (nN = Σ stress × pixel area)
+need the image pixel size. Total force sums magnitudes, so it is not the net force.
+        """)
 
-**Output (right):** Predicted traction force map.  
-- **Color** indicates force magnitude: blue = low, red = high  
-- **Brighter/warmer colors** = stronger forces exerted by the cell on the substrate  
-- Values are normalized to [0, 1] for visualization
-
-**Metrics (auto cell boundary off):**
-- **Sum of all pixels:** Raw sum over entire map
-- **Force (scaled):** Total traction force in physical units (full field of view)
-- **Heatmap max/mean:** Peak and average force intensity (full field of view)
-            """)
-
-    original_vals = build_original_vals(raw_heatmap, pixel_sum, force)
-
-    pdf_bytes = create_pdf_report(
-        img, display_heatmap, raw_heatmap, pixel_sum, force, base_name, colormap_name,
-        cell_mask=cell_mask, cell_pixel_sum=cell_pixel_sum, cell_force=cell_force, cell_mean=cell_mean
-    )
+    original_vals = build_original_vals(raw_heatmap, pixel_sum, force, scale)
+    buf_hm = heatmap_figure_png_bytes(display_heatmap, colormap_name, cell_mask, scale, lo, hi)
+    csv_text = _metrics_csv(base_name, metrics_full, metrics_cell, info)
+    pdf_bytes = create_pdf_report(img, display_heatmap, raw_heatmap, base_name, colormap_name, cell_mask=cell_mask,
+                                  metrics_full=metrics_full, metrics_cell=metrics_cell, info=info, scale=scale,
+                                  clip_min=lo, clip_max=hi)
 
     btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
     with btn_col1:
@@ -322,48 +312,20 @@ This is the raw image you provided—it shows cell shape but not forces.
                 st.rerun()
         elif HAS_DRAWABLE_CANVAS:
             with st.expander("Measure tool"):
-                expander_cell_vals = build_cell_vals(raw_heatmap, cell_mask, pixel_sum, force) if (auto_cell_boundary and cell_mask is not None) else None
-                expander_cell_mask = cell_mask if auto_cell_boundary else None
-                render_region_canvas(
-                    display_heatmap,
-                    raw_heatmap=raw_heatmap,
-                    bf_img=img,
-                    original_vals=original_vals,
-                    cell_vals=expander_cell_vals,
-                    cell_mask=expander_cell_mask,
-                    key_suffix="expander",
-                    input_filename=key_img,
-                    colormap_name=colormap_name,
-                )
+                expander_cell_vals = build_cell_vals(raw_heatmap, cell_mask, pixel_sum, force, scale) if (auto_cell_boundary and cell_mask is not None) else None
+                render_region_canvas(display_heatmap, raw_heatmap=raw_heatmap, bf_img=img, original_vals=original_vals,
+                                     cell_vals=expander_cell_vals, cell_mask=cell_mask if auto_cell_boundary else None,
+                                     key_suffix="expander", input_filename=key_img, colormap_name=colormap_name)
         else:
             st.caption("Install `streamlit-drawable-canvas-fix` for region measurement: `pip install streamlit-drawable-canvas-fix`")
     with btn_col2:
-        st.download_button(
-            "Download heatmap",
-            width="stretch",
-            data=buf_hm.getvalue(),
-            file_name="s2f_heatmap.png",
-            mime="image/png",
-            key=f"download_heatmap{download_key_suffix}",
-            icon=":material/download:",
-        )
+        st.download_button("Download map", width="stretch", data=buf_hm.getvalue(),
+                           file_name=f"{base_name}_traction_stress.png", mime="image/png",
+                           key=f"download_heatmap{download_key_suffix}", icon=":material/download:")
     with btn_col3:
-        st.download_button(
-            "Download values",
-            width="stretch",
-            data=buf_main_csv.getvalue(),
-            file_name=f"{base_name}_main_values.csv",
-            mime="text/csv",
-            key=f"download_main_values{download_key_suffix}",
-            icon=":material/download:",
-        )
+        st.download_button("Download values", width="stretch", data=csv_text, file_name=f"{base_name}_values.csv",
+                           mime="text/csv", key=f"download_main_values{download_key_suffix}", icon=":material/download:")
     with btn_col4:
-        st.download_button(
-            "Download report",
-            width="stretch",
-            data=pdf_bytes,
-            file_name=f"{base_name}_report.pdf",
-            mime="application/pdf",
-            key=f"download_pdf{download_key_suffix}",
-            icon=":material/picture_as_pdf:",
-        )
+        st.download_button("Download report", width="stretch", data=pdf_bytes, file_name=f"{base_name}_report.pdf",
+                           mime="application/pdf", key=f"download_pdf{download_key_suffix}",
+                           icon=":material/picture_as_pdf:")

@@ -1,5 +1,6 @@
 """Report and heatmap export utilities."""
 import io
+import textwrap
 from datetime import datetime
 
 import cv2
@@ -10,7 +11,7 @@ from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from config.constants import COLORMAPS
+from config.constants import ARCH_LABELS, AUTO_BOUNDARY_DESCRIPTION, COLORMAPS
 
 
 def _draw_pdf_footer(c, margin=72, footer_y=40, include_web_app=False):
@@ -82,73 +83,243 @@ def heatmap_to_png_bytes(scaled_heatmap, colormap_name="Jet", cell_mask=None, zm
     return buf
 
 
-def create_pdf_report(img, display_heatmap, raw_heatmap, pixel_sum, force, base_name, colormap_name="Jet",
-                      cell_mask=None, cell_pixel_sum=None, cell_force=None, cell_mean=None, zmin=None, zmax=None):
-    """Create a PDF report with input image, heatmap, and metrics."""
+def info_rows(info):
+    """Provenance of a prediction as (label, value) rows: everything needed to reproduce it."""
+    if not info:
+        return []
+    m = info.get("model", {})
+    rows = [
+        ("Input file", info.get("input_file", "–")),
+        ("Prediction time (UTC)", info.get("time", "–")),
+        ("Model type", {"single_cell": "Single cell", "spheroid": "Spheroid"}.get(m.get("model_type"), "–")),
+        ("Architecture", ARCH_LABELS.get(m.get("architecture"), m.get("architecture", "–"))),
+        ("Checkpoint", m.get("checkpoint", "–")),
+        ("Checkpoint SHA-256", m.get("checkpoint_sha256", "–")),
+    ]
+    sub = info.get("substrate")
+    if sub:
+        if sub.get("mode") == "preset":
+            rows.append(("Substrate setting (preset)", sub.get("name", "–")))
+        else:
+            rows.append(("Substrate setting (manual)", "–"))
+        rows.append(("  pixel-size setting / Young's modulus", f"{sub.get('pixelsize'):.4f} / {sub.get('young'):.0f} Pa"))
+        rows.append(("  model input channels (normalised)",
+                     f"{sub.get('pixelsize_norm'):.3f} / {sub.get('young_norm'):.3f}"))
+    shp = info.get("image_shape")
+    rows += [
+        ("Image size (px)", f"{shp[1]} x {shp[0]}" if shp else "–"),
+        ("Image pixel size", f"{info['image_um_per_px']:.4f} µm/px (user input)" if info.get("image_um_per_px") else "not set"),
+        ("Stress scale", f"normalised output 1.0 = {info.get('stress_max_pa', 0):.0f} Pa"),
+    ]
+    d = info.get("display", {})
+    if d:
+        rows.append(("Display", f"{d.get('colormap', '–')}, {d.get('range_pa', ('–', '–'))[0]:.0f}-{d.get('range_pa', ('–', '–'))[1]:.0f} Pa"
+                     + (" (values above the range shown in the top colour)" if d.get("mode") == "Range" else "")))
+    rows.append(("Measure force region only", f"on ({AUTO_BOUNDARY_DESCRIPTION})" if info.get("auto_boundary") else "off (whole field of view)"))
+    rows.append(("App version", f"{info.get('app_version', '–')}" + (f" (commit {info['app_commit']})" if info.get("app_commit") else "")))
+    return rows
+
+
+def colorbar_strip_rgb(width, colormap_name, clip_min=0.0, clip_max=1.0, stress_max_pa=500.0, height=70):
+    """Horizontal colourbar with tick labels in Pa, as an RGB image (white background)."""
+    from ui.heatmaps import colorbar_ticks_pa
+    strip = np.full((height, width, 3), 255, np.uint8)
+    pad = max(10, width // 30)
+    bar_w = width - 2 * pad
+    grad = np.linspace(0, 255, bar_w).astype(np.uint8).reshape(1, -1)
+    rgb = cv2.cvtColor(cv2.applyColorMap(grad, COLORMAPS.get(colormap_name, cv2.COLORMAP_JET)), cv2.COLOR_BGR2RGB)
+    bar_h = height // 4
+    strip[6:6 + bar_h, pad:pad + bar_w] = np.repeat(rgb, bar_h, axis=0)
+    pos, labels = colorbar_ticks_pa(clip_min, clip_max, stress_max_pa)
+    fs = max(0.4, width / 950)
+    lw = max(1, int(round(fs * 1.6)))
+    for t, lab in zip(pos, labels):
+        x = pad + int(t * (bar_w - 1))
+        cv2.line(strip, (x, 6 + bar_h), (x, 12 + bar_h), (0, 0, 0), lw)
+        (tw, th), _ = cv2.getTextSize(lab, cv2.FONT_HERSHEY_SIMPLEX, fs, lw)
+        cv2.putText(strip, lab, (min(max(x - tw // 2, 0), width - tw), 18 + bar_h + th), cv2.FONT_HERSHEY_SIMPLEX, fs,
+                    (0, 0, 0), lw, cv2.LINE_AA)
+    title = "Traction stress (Pa)"
+    (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, fs, lw)
+    cv2.putText(strip, title, ((width - tw) // 2, height - 8), cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 0), lw, cv2.LINE_AA)
+    return strip
+
+
+def heatmap_figure_rgb(display_heatmap, colormap_name="Jet", cell_mask=None, scale=None, clip_min=0.0, clip_max=1.0):
+    """Heatmap with optional red boundary, µm scale bar and a Pa colourbar underneath (for PNG/PDF export)."""
+    from utils.units import draw_scale_bar
+    hm = heatmap_to_rgb_with_contour(display_heatmap, colormap_name, cell_mask)
+    if scale is not None and scale.get("hm_um_per_px_x"):
+        draw_scale_bar(hm, scale["hm_um_per_px_x"])
+    smax = scale["stress_max_pa"] if scale else 1.0
+    bar = colorbar_strip_rgb(hm.shape[1], colormap_name, clip_min, clip_max, smax, height=max(80, hm.shape[0] // 6))
+    return np.vstack([hm, bar])
+
+
+def heatmap_figure_png_bytes(display_heatmap, colormap_name="Jet", cell_mask=None, scale=None, clip_min=0.0, clip_max=1.0):
     buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    c.setTitle("Shape2Force")
-    c.setAuthor("Angione-Lab")
+    Image.fromarray(heatmap_figure_rgb(display_heatmap, colormap_name, cell_mask, scale, clip_min, clip_max)).save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+def _draw_prediction_page(c, img, display_heatmap, raw_heatmap, base_name, colormap_name="Jet", cell_mask=None,
+                          metrics_full=None, metrics_cell=None, info=None, scale=None, clip_min=0.0, clip_max=1.0,
+                          page_label=None):
+    """Draw one prediction (images, metrics, parameters) on the current page of canvas `c`."""
+    from utils.units import draw_scale_bar, metric_rows
     page_w_pt, page_h_pt = A4[0], A4[1]
-    margin = 72
+    margin = 60
     layout = _pdf_image_layout(page_w_pt, page_h_pt, margin)
-    img_w = layout["img_w"]
-    img_h = layout["img_h"]
-    bf_x = layout["bf_x"]
-    hm_x = layout["hm_x"]
+    img_w, img_h = layout["img_w"], layout["img_h"]
+    bf_x, hm_x, y_top = layout["bf_x"], layout["hm_x"], layout["y_top"]
     img_bottom = layout["img_bottom"]
-    y_top = layout["y_top"]
 
     _draw_pdf_footer(c, margin=margin, include_web_app=True)
-    c.setFont("Helvetica-Bold", 16)
+    c.setFont("Helvetica-Bold", 15)
     c.drawString(margin, y_top, "Shape2Force (S2F) - Prediction Report")
     c.setFont("Helvetica", 10)
-    c.drawString(margin, y_top - 14, f"Image: {base_name}")
-    y_top -= 35
+    c.drawString(margin, y_top - 14, f"Image: {base_name}" + (f"   ({page_label})" if page_label else ""))
 
-    img_pil = Image.fromarray(img) if img.ndim == 2 else Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    img_buf = io.BytesIO()
-    img_pil.save(img_buf, format="PNG")
-    img_buf.seek(0)
-    c.drawImage(ImageReader(img_buf), bf_x, img_bottom, width=img_w, height=img_h, preserveAspectRatio=True)
+    bf = img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    bf_um_per_px = scale.get("image_um_per_px") if scale else None
+    if max(bf.shape[:2]) > 1024:   # keep the PDF small; the scale bar follows the resampling
+        f = 1024 / max(bf.shape[:2])
+        bf = cv2.resize(bf, (int(bf.shape[1] * f), int(bf.shape[0] * f)), interpolation=cv2.INTER_AREA)
+        bf_um_per_px = bf_um_per_px / f if bf_um_per_px else None
+    bf = np.ascontiguousarray(bf.copy())
+    if bf_um_per_px:
+        draw_scale_bar(bf, bf_um_per_px)
+    bf_buf = io.BytesIO(); Image.fromarray(bf).save(bf_buf, format="PNG"); bf_buf.seek(0)
+    c.drawImage(ImageReader(bf_buf), bf_x, img_bottom, width=img_w, height=img_h, preserveAspectRatio=True)
     c.setFont("Helvetica", 9)
-    bf_label_w = c.stringWidth("Bright-field", "Helvetica", 9)
-    c.drawString(bf_x + (img_w - bf_label_w) / 2, img_bottom - 14, "Bright-field")
+    c.drawCentredString(bf_x + img_w / 2, img_bottom - 12, "Bright field")
 
-    heatmap_rgb = heatmap_to_rgb_with_contour(display_heatmap, colormap_name, cell_mask, zmin=zmin, zmax=zmax)
-    hm_buf = io.BytesIO()
-    Image.fromarray(heatmap_rgb).save(hm_buf, format="PNG")
-    hm_buf.seek(0)
-    c.drawImage(ImageReader(hm_buf), hm_x, img_bottom, width=img_w, height=img_h, preserveAspectRatio=True)
-    hm_label = "Force map (red = estimated boundary)" if cell_mask is not None and np.any(cell_mask > 0) else "Force map"
-    hm_label_w = c.stringWidth(hm_label, "Helvetica", 9)
-    c.drawString(hm_x + (img_w - hm_label_w) / 2, img_bottom - 14, hm_label)
+    fig = heatmap_figure_rgb(display_heatmap, colormap_name, cell_mask, scale, clip_min, clip_max)
+    fig_h = img_h * fig.shape[0] / fig.shape[1]
+    hm_buf = io.BytesIO(); Image.fromarray(fig).save(hm_buf, format="PNG", optimize=True); hm_buf.seek(0)
+    c.drawImage(ImageReader(hm_buf), hm_x, img_bottom + img_h - fig_h, width=img_w, height=fig_h, preserveAspectRatio=True)
+    hm_label = "Predicted traction stress (red = force region)" if cell_mask is not None and np.any(cell_mask > 0) \
+        else "Predicted traction stress"
+    c.drawCentredString(hm_x + img_w / 2, img_bottom + img_h - fig_h - 12, hm_label)
 
-    # Metrics section with spacing
-    row_height = 14
-    y = img_bottom - 14 - row_height
+    y = img_bottom + img_h - fig_h - 40
     c.setFont("Helvetica-Bold", 10)
     c.drawString(margin, y, "Metrics")
+    y -= 15
     c.setFont("Helvetica", 9)
-    y -= 18
-    if cell_pixel_sum is not None and cell_force is not None and cell_mean is not None:
-        metrics = [
-            ("Cell sum (estimated boundary)", f"{cell_pixel_sum:.2f}"),
-            ("Cell force (scaled)", f"{cell_force:.2f}"),
-            ("Heatmap max", f"{np.max(raw_heatmap):.4f}"),
-            ("Heatmap mean (estimated boundary)", f"{cell_mean:.4f}"),
-        ]
-    else:
-        metrics = [
-            ("Sum of all pixels", f"{pixel_sum:.2f}"),
-            ("Cell force (scaled)", f"{force:.2f}"),
-            ("Heatmap max", f"{np.max(raw_heatmap):.4f}"),
-            ("Heatmap mean", f"{np.mean(raw_heatmap):.4f}"),
-        ]
-    for label, val in metrics:
-        c.drawString(margin, y, f"{label}: {val}")
-        y -= 16
+    cols = [("Whole field of view", metrics_full)] + ([("Force region (red)", metrics_cell)] if metrics_cell else [])
+    x_cols = [margin + 170 + i * 150 for i in range(len(cols))]
+    for xc, (title, _) in zip(x_cols, cols):
+        c.setFont("Helvetica-Bold", 9); c.drawString(xc, y, title)
+    c.setFont("Helvetica", 9)
+    y -= 13
+    labels = [r[0] for r in metric_rows(metrics_full or {})]
+    for li, lab in enumerate(labels):
+        c.drawString(margin, y, lab)
+        for xc, (_, m) in zip(x_cols, cols):
+            c.drawString(xc, y, metric_rows(m or {})[li][1])
+        y -= 13
+    if scale is None or not scale.get("hm_px_area_um2"):
+        c.setFont("Helvetica-Oblique", 8)
+        c.drawString(margin, y, "Area and total force need the image pixel size (sidebar).")
+        y -= 12
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin, y, "Total force = sum of traction stress x pixel area. S2F predicts magnitude only (no direction).")
+    y -= 20
 
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "Parameters (for reproducibility)")
+    y -= 14
+    c.setFont("Helvetica", 8)
+    for lab, val in info_rows(info):
+        c.drawString(margin, y, f"{lab}:")
+        for line in textwrap.wrap(str(val), 82) or ["–"]:
+            c.drawString(margin + 175, y, line)
+            y -= 11
+        if y < 70:
+            c.showPage(); _draw_pdf_footer(c, margin=margin, include_web_app=True); y = page_h_pt - 60; c.setFont("Helvetica", 8)
+
+
+def create_pdf_report(img, display_heatmap, raw_heatmap, base_name, colormap_name="Jet", cell_mask=None,
+                      metrics_full=None, metrics_cell=None, info=None, scale=None, clip_min=0.0, clip_max=1.0):
+    """
+    PDF report: bright field and predicted traction-stress map (with µm scale bar and Pa colourbar),
+    metrics with units, and every parameter needed to reproduce the prediction (Reviewer 1).
+    """
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setTitle("Shape2Force prediction report")
+    c.setAuthor("Angione-Lab")
+    _draw_prediction_page(c, img, display_heatmap, raw_heatmap, base_name, colormap_name, cell_mask,
+                          metrics_full, metrics_cell, info, scale, clip_min, clip_max)
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
+
+
+_SHARED_KEYS = ("Model type", "Architecture", "Checkpoint", "Checkpoint SHA-256", "Substrate setting (preset)",
+                "Substrate setting (manual)", "  pixel-size setting / Young's modulus",
+                "  model input channels (normalised)", "Image pixel size", "Stress scale", "Display", "Measure force region only",
+                "App version")
+
+
+def create_batch_pdf_report(items, colormap_name="Jet", clip_min=0.0, clip_max=1.0, auto_cell_boundary=False):
+    """
+    Batch PDF: page 1 = summary table of all images (metrics with units) and the shared parameters;
+    then one page per image with the same layout as the single-image report.
+    items: list of dicts with img, display_heatmap, raw_heatmap, base_name, cell_mask, metrics_full,
+           metrics_cell, info, scale.
+    """
+    from utils.units import fmt
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setTitle("Shape2Force batch report")
+    c.setAuthor("Angione-Lab")
+    page_w_pt, page_h_pt = A4
+    margin = 60
+    _draw_pdf_footer(c, margin=margin, include_web_app=True)
+    y = page_h_pt - 50
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(margin, y, "Shape2Force (S2F) - Batch Report")
+    y -= 16
+    c.setFont("Helvetica", 10)
+    region = "force region (red contour)" if auto_cell_boundary else "whole field of view"
+    c.drawString(margin, y, f"{len(items)} images; metrics over the {region}. One page per image follows.")
+    y -= 26
+    headers = ["#", "Image", "Mean stress (Pa)", "Max stress (Pa)", "Area (µm²)", "Total force (nN)"]
+    xs = [margin, margin + 22, margin + 210, margin + 290, margin + 370, margin + 440]
+    c.setFont("Helvetica-Bold", 9)
+    for x, h in zip(xs, headers):
+        c.drawString(x, y, h)
+    y -= 4
+    c.line(margin, y, page_w_pt - margin, y)
+    y -= 12
+    c.setFont("Helvetica", 9)
+    for i, it in enumerate(items, 1):
+        m = (it["metrics_cell"] if (auto_cell_boundary and it.get("metrics_cell")) else it["metrics_full"]) or {}
+        vals = [str(i), it["base_name"][:34], fmt(m.get("mean_pa"), nd=1), fmt(m.get("max_pa"), nd=1),
+                fmt(m.get("area_um2"), nd=0), fmt(m.get("total_force_nN"), nd=2)]
+        for x, v in zip(xs, vals):
+            c.drawString(x, y, v)
+        y -= 13
+    y -= 18
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "Parameters (shared by all images)")
+    y -= 14
+    c.setFont("Helvetica", 8)
+    for lab, val in info_rows(items[0]["info"] if items else None):
+        if lab in _SHARED_KEYS:
+            c.drawString(margin, y, f"{lab}:")
+            for line in textwrap.wrap(str(val), 82) or ["–"]:
+                c.drawString(margin + 175, y, line)
+                y -= 11
+    c.showPage()
+    for i, it in enumerate(items, 1):
+        _draw_prediction_page(c, it["img"], it["display_heatmap"], it["raw_heatmap"], it["base_name"], colormap_name,
+                              it.get("cell_mask"), it["metrics_full"], it.get("metrics_cell"), it["info"], it["scale"],
+                              clip_min, clip_max, page_label=f"image {i} of {len(items)}")
+        c.showPage()
     c.save()
     buf.seek(0)
     return buf.getvalue()

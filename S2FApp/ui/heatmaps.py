@@ -44,22 +44,32 @@ def _draw_region_overlay(annotated, mask, color, fill_alpha=0.3, stroke_width=2)
     cv2.drawContours(annotated, contours, -1, color, stroke_width)
 
 
-def render_horizontal_colorbar(colormap_name, clip_min=0, clip_max=1, is_rescale=False, caption=None):
-    """
-    Render a compact horizontal colorbar for batch mode, anchored above the table.
+def colorbar_ticks_pa(clip_min=0.0, clip_max=1.0, stress_max_pa=500.0, n=5):
+    """Tick positions (0-1 along the colormap) and labels in Pa at round values for the displayed window."""
+    lo, hi = float(clip_min), float(clip_max)
+    if not hi > lo:
+        lo, hi = 0.0, 1.0
+    lo_pa, hi_pa = lo * stress_max_pa, hi * stress_max_pa
+    span = hi_pa - lo_pa
+    raw = span / max(n - 1, 1)
+    k = 10 ** np.floor(np.log10(raw))
+    step = min((m * k for m in (1, 2, 2.5, 5, 10)), key=lambda st_: abs(st_ - raw))
+    first = np.ceil(lo_pa / step - 1e-9) * step
+    vals = np.arange(first, hi_pa + 1e-9, step) + 0.0   # +0.0 turns -0 into 0
+    pos = [float((v - lo_pa) / span) for v in vals]
+    labels = [f"{v:g}" for v in vals]
+    return pos, labels
 
-    When ``is_rescale`` is True (Force scale **Range** with a strict sub-interval), tick labels show
-    model force values in ``[clip_min, clip_max]``. The gradient still spans the full colormap because
-    the heatmap has already been **rescaled** so the lowest (highest) value in your range maps to
-    the colormap minimum (maximum)—same convention as the main Plotly view.
-    """
-    ticks = [0, 0.25, 0.5, 0.75, 1]
-    if is_rescale:
-        rng = clip_max - clip_min
-        labels = [f"{clip_min + t * rng:.2f}" for t in ticks]
-    else:
-        labels = [f"{t:.2f}" for t in ticks]
 
+def render_horizontal_colorbar(colormap_name, clip_min=0, clip_max=1, is_rescale=False, caption=None,
+                               stress_max_pa=500.0):
+    """
+    Compact horizontal colorbar (batch mode) labelled in Pa. With a display window (Range mode) the gradient
+    spans the window [clip_min, clip_max]; values above it are shown in the top colour.
+    """
+    ticks, labels = colorbar_ticks_pa(clip_min, clip_max, stress_max_pa)
+    if not is_rescale:
+        ticks, labels = colorbar_ticks_pa(0.0, 1.0, stress_max_pa)
     data_url = _colormap_gradient_base64(colormap_name)
     labels_html = "".join(f'<span class="cb-tick">{l}</span>' for l in labels)
     html = f"""
@@ -69,8 +79,7 @@ def render_horizontal_colorbar(colormap_name, clip_min=0, clip_max=1, is_rescale
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
-    if caption:
-        st.caption(caption)
+    st.caption(caption or "Traction stress (Pa)")
 
 
 def make_annotated_heatmap(heatmap_rgb, mask, fill_alpha=0.3, stroke_color=(0, 188, 212), stroke_width=2):

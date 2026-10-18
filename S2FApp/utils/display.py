@@ -32,30 +32,18 @@ def is_display_range_remapped(display_mode, clip_min, clip_max):
 
 def apply_display_scale(heatmap, mode, clip_min=0, clip_max=1, clamp_only=False):
     """
-    Apply display scaling. Display only—does not change underlying values.
+    Map the normalised prediction (0-1) to colormap positions. Display only; values are unchanged.
 
-    Supports modes used by the app: ``Default`` (clip to [0, 1]) and ``Range``
-    (window to [clip_min, clip_max]). Unknown ``mode`` is treated like ``Default``.
-
-    Parameters
-    ----------
-    clamp_only : bool
-        For ``mode == "Range"`` when ``clip_max > clip_min``:
-
-        - **False** (default in the app for Range): pixels outside ``[clip_min, clip_max]`` are set
-          to 0; values inside are linearly mapped to ``[0, 1]`` for the colormap.
-        - **True**: values are clamped to ``[clip_min, clip_max]`` without rescaling to ``[0, 1]``.
+    ``Default``: the full scale, 0-1 (= 0-500 Pa single cells, 0-50 Pa spheroids).
+    ``Range``: the window [clip_min, clip_max] is stretched over the whole colormap; values below the window
+    are shown as the lowest colour and values above it **saturate at the highest colour**. (Earlier versions set
+    values above the window to 0, which displayed the strongest stresses as zero.)
+    ``clamp_only`` is kept for backward compatibility and ignored.
     """
+    h = np.asarray(heatmap, dtype=np.float32)
     if mode != "Range":
-        return np.clip(heatmap, 0, 1).astype(np.float32)
-    # Range
+        return np.clip(h, 0, 1).astype(np.float32)
     vmin, vmax = float(clip_min), float(clip_max)
     if vmax > vmin:
-        h = heatmap.astype(np.float32)
-        if clamp_only:
-            return np.clip(h, vmin, vmax).astype(np.float32)
-        mask = (h >= vmin) & (h <= vmax)
-        out = np.zeros_like(h)
-        out[mask] = (h[mask] - vmin) / (vmax - vmin)
-        return np.clip(out, 0, 1).astype(np.float32)
-    return np.clip(heatmap, 0, 1).astype(np.float32)
+        return np.clip((h - vmin) / (vmax - vmin), 0, 1).astype(np.float32)
+    return np.clip(h, 0, 1).astype(np.float32)
