@@ -155,21 +155,15 @@ def render_region_metrics_and_downloads(metrics_list, masks, heatmap_rgb, input_
     # Render as HTML table to avoid Streamlit's default row/column indices
     header = table_rows[0]
     body = table_rows[1:]
-    th_cells = "".join(
-        f'<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">{html.escape(str(h))}</th>'
-        for h in header
-    )
+    th_cells = "".join(f"<th>{html.escape(str(h))}</th>" for h in header)
     rows_html = [
         "<tr>"
-        + "".join(
-            f'<td style="border: 1px solid #ddd; padding: 8px;">{html.escape(str(c))}</td>'
-            for c in row
-        )
+        + "".join(f"<td>{html.escape(str(c))}</td>" for c in row)
         + "</tr>"
         for row in body
     ]
     table_html = (
-        f'<table style="border-collapse: collapse; width: 100%;">'
+        '<table class="s2f-region-table">'
         f"<thead><tr>{th_cells}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody></table>"
     )
