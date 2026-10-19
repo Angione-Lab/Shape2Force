@@ -1,6 +1,7 @@
 """
 Shape2Force (S2F) - GUI for force map prediction from bright field microscopy images.
 """
+import hashlib
 import os
 import sys
 import traceback
@@ -161,6 +162,22 @@ def get_cached_sample_thumbnails(model_type, sample_folder, sample_files):
             thumbnails.append((fname, img))
         cache[cache_key] = thumbnails
     return cache[cache_key]
+
+
+def _remember_input_hash(name, data):
+    """SHA-256 of the uploaded file bytes, so the report identifies the exact input image."""
+    st.session_state.setdefault("input_sha256", {})[name] = hashlib.sha256(data).hexdigest()
+
+
+def _input_sha256(name):
+    h = st.session_state.get("input_sha256", {}).get(name)
+    if h is None and name:
+        p = os.path.join(get_sample_folder(S2F_ROOT, model_type), name)
+        if os.path.isfile(p):
+            with open(p, "rb") as f:
+                h = hashlib.sha256(f.read()).hexdigest()
+            st.session_state.setdefault("input_sha256", {})[name] = h
+    return h or "–"
 
 
 def _render_sample_selector(model_type, batch_mode):
@@ -388,6 +405,7 @@ if batch_mode:
             uploaded_list = uploaded_list[:BATCH_MAX_IMAGES]
             for u in uploaded_list:
                 bytes_data = u.read()
+                _remember_input_hash(u.name, bytes_data)
                 nparr = np.frombuffer(bytes_data, np.uint8)
                 decoded = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
                 if decoded is not None:
@@ -405,6 +423,7 @@ else:
         )
         if uploaded:
             bytes_data = uploaded.read()
+            _remember_input_hash(uploaded.name, bytes_data)
             nparr = np.frombuffer(bytes_data, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
             uploaded.seek(0)
@@ -468,7 +487,7 @@ def _build_info(predictor, key_img, img, pred_time, image_um_per_px, display_mod
                **predictor.substrate_channels(sub_val_for_info, substrate_config if use_manual else None)}
     rng = (clip_min * smax, clip_max * smax) if display_mode == "Range" else (0.0, smax)
     return {
-        "input_file": key_img or "image", "time": pred_time, "model": predictor.describe(), "substrate": sub,
+        "input_file": key_img or "image", "input_sha256": _input_sha256(key_img), "time": pred_time, "model": predictor.describe(), "substrate": sub,
         "image_shape": tuple(img.shape[:2]), "image_um_per_px": image_um_per_px, "stress_max_pa": smax,
         "display": {"mode": display_mode, "range_pa": rng, "colormap": colormap_name},
         "auto_boundary": bool(auto_cell_boundary), "app_version": APP_VERSION,

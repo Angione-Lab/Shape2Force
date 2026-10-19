@@ -90,6 +90,7 @@ def info_rows(info):
     m = info.get("model", {})
     rows = [
         ("Input file", info.get("input_file", "–")),
+        ("Input file SHA-256", info.get("input_sha256", "–")),
         ("Prediction time (UTC)", info.get("time", "–")),
         ("Model type", {"single_cell": "Single cell", "spheroid": "Spheroid"}.get(m.get("model_type"), "–")),
         ("Architecture", ARCH_LABELS.get(m.get("architecture"), m.get("architecture", "–"))),
