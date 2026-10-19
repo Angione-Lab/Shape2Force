@@ -114,21 +114,8 @@ def compute_settings_normalization(config=None, config_path=None):
     Returns:
         dict: {'pixelsize': {'min', 'max'}, 'young': {'min', 'max'}}
     """
-    if config is None:
-        config = load_substrate_config(config_path)
-
-    substrates = config.get('substrates', {})
-    all_pixelsizes = [s['pixelsize'] for s in substrates.values()]
-    all_youngs = [s['young'] for s in substrates.values()]
-
-    if not all_pixelsizes or not all_youngs:
-        pixelsize_min, pixelsize_max = 3.0769, 9.8138
-        young_min, young_max = 1000.0, 10000.0
-    else:
-        pixelsize_min, pixelsize_max = min(all_pixelsizes), max(all_pixelsizes)
-        young_min, young_max = min(all_youngs), max(all_youngs)
-
-    return {
-        'pixelsize': {'min': pixelsize_min, 'max': pixelsize_max},
-        'young': {'min': young_min, 'max': young_max}
-    }
+    # The ranges must be those used in training (pixel size 3.0769-9.8138, Young's modulus 1-10 kPa),
+    # not the min/max of the presets listed by the app: previously the app normalised the pixel size over
+    # its own presets (3.0769-6.1538), which gave a different input for any pixel size other than 3.0769.
+    from config.constants import SETTINGS_NORMALIZATION
+    return {k: dict(v) for k, v in SETTINGS_NORMALIZATION.items()}

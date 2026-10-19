@@ -12,6 +12,7 @@ from PIL import Image
 from config.constants import CANVAS_SIZE, DRAW_TOOLS, TOOL_LABELS
 from utils.report import heatmap_to_rgb_with_contour, create_measure_pdf_report
 from ui.heatmaps import make_annotated_heatmap_multi_regions
+from utils.units import fmt, make_scale, region_metrics
 
 try:
     from streamlit_drawable_canvas import st_canvas
@@ -94,66 +95,32 @@ def parse_canvas_shapes_to_masks(json_data, canvas_h, canvas_w, heatmap_h, heatm
     return masks
 
 
-def build_original_vals(raw_heatmap, pixel_sum, force):
-    """Build original_vals dict for measure tool (full map)."""
-    return {
-        "pixel_sum": pixel_sum,
-        "force": force,
-        "max": float(np.max(raw_heatmap)),
-        "mean": float(np.mean(raw_heatmap)),
-    }
+def build_original_vals(raw_heatmap, pixel_sum, force, scale=None):
+    """Whole-map values for the measure tool (physical units when `scale` is given; see utils/units.py)."""
+    scale = scale or make_scale("single_cell")
+    m = region_metrics(raw_heatmap, None, scale)
+    return {"pixel_sum": pixel_sum, "force": force, "scale": scale, **m}
 
 
-def _compute_cell_metrics(raw_heatmap, cell_mask, pixel_sum, force):
-    """Compute metrics over estimated cell area only."""
-    area_px = int(np.sum(cell_mask))
-    if area_px == 0:
-        return None, None, None
-    region_values = raw_heatmap * cell_mask
-    cell_pixel_sum = float(np.sum(region_values))
-    cell_force = cell_pixel_sum * (force / pixel_sum) if pixel_sum > 0 else cell_pixel_sum
-    cell_mean = cell_pixel_sum / area_px
-    return cell_pixel_sum, cell_force, cell_mean
-
-
-def build_cell_vals(raw_heatmap, cell_mask, pixel_sum, force):
-    """Build cell_vals dict for measure tool (estimated cell area). Returns None if invalid."""
-    cell_pixel_sum, cell_force, cell_mean = _compute_cell_metrics(raw_heatmap, cell_mask, pixel_sum, force)
-    if cell_pixel_sum is None:
+def _compute_cell_metrics(raw_heatmap, cell_mask, pixel_sum, force, scale=None):
+    """Metrics over the estimated cell area: dict from utils.units.region_metrics, or None if the mask is empty."""
+    if cell_mask is None or int(np.sum(cell_mask)) == 0:
         return None
-    region_values = raw_heatmap * cell_mask
-    region_nonzero = region_values[cell_mask > 0]
-    cell_max = float(np.max(region_nonzero)) if len(region_nonzero) > 0 else 0
-    return {
-        "pixel_sum": cell_pixel_sum,
-        "force": cell_force,
-        "max": cell_max,
-        "mean": cell_mean,
-    }
+    return region_metrics(raw_heatmap, cell_mask, scale or make_scale("single_cell"))
+
+
+def build_cell_vals(raw_heatmap, cell_mask, pixel_sum, force, scale=None):
+    """Values over the estimated cell area for the measure tool. Returns None if invalid."""
+    m = _compute_cell_metrics(raw_heatmap, cell_mask, pixel_sum, force, scale)
+    if m is None:
+        return None
+    return {"scale": scale, **m}
 
 
 def compute_region_metrics(raw_heatmap, mask, original_vals=None):
-    """Compute region metrics from mask."""
-    area_px = int(np.sum(mask))
-    region_values = raw_heatmap * mask
-    region_nonzero = region_values[mask > 0]
-    force_sum = float(np.sum(region_values))
-    density = force_sum / area_px if area_px > 0 else 0
-    region_max = float(np.max(region_nonzero)) if len(region_nonzero) > 0 else 0
-    region_mean = float(np.mean(region_nonzero)) if len(region_nonzero) > 0 else 0
-    region_force_scaled = (
-        force_sum * (original_vals["force"] / original_vals["pixel_sum"])
-        if original_vals and original_vals.get("pixel_sum", 0) > 0
-        else force_sum
-    )
-    return {
-        "area_px": area_px,
-        "force_sum": force_sum,
-        "density": density,
-        "max": region_max,
-        "mean": region_mean,
-        "force_scaled": region_force_scaled,
-    }
+    """Region metrics in physical units (area µm², total force nN, mean/max traction stress Pa)."""
+    scale = (original_vals or {}).get("scale") or make_scale("single_cell")
+    return region_metrics(raw_heatmap, mask, scale)
 
 
 def _draw_contour_on_image(img_rgb, mask, stroke_color=(255, 0, 0), stroke_width=3):
@@ -171,48 +138,32 @@ def render_region_metrics_and_downloads(metrics_list, masks, heatmap_rgb, input_
                                         first_region_label=None, bf_img=None, cell_mask=None, colormap_name="Jet"):
     """
     Render per-shape metrics table and download buttons.
-    first_region_label: custom label for first row (e.g. 'Auto boundary').
+    first_region_label: custom label for first row (e.g. 'Force region').
     masks: list of region masks (user-drawn only; used for labeled heatmap with R1, R2...).
     """
     base_name = os.path.splitext(input_filename or "image")[0]
     st.markdown("**Regions (each selection = one row)**")
-    if has_original_vals:
-        headers = ["Region", "Area", "F.sum", "Force", "Max", "Mean"]
-        csv_rows = [["image", "region"] + headers[1:]]
-    else:
-        headers = ["Region", "Area (px²)", "Force sum", "Mean"]
-        csv_rows = [["image", "region", "Area", "Force sum", "Mean"]]
+    headers = ["Region", "Area (µm²)", "Total force (nN)", "Mean stress (Pa)", "Max stress (Pa)"]
+    csv_rows = [["image", "region", "area_um2", "total_force_nN", "mean_stress_Pa", "max_stress_Pa", "n_pixels"]]
     table_rows = [headers]
     for i, metrics in enumerate(metrics_list, 1):
         region_label = first_region_label if (i == 1 and first_region_label) else f"Region {i - (1 if first_region_label else 0)}"
-        if has_original_vals:
-            row = [region_label, str(metrics["area_px"]), f"{metrics['force_sum']:.3f}", f"{metrics['force_scaled']:.1f}",
-                   f"{metrics['max']:.3f}", f"{metrics['mean']:.4f}"]
-            csv_rows.append([base_name, region_label, metrics["area_px"], f"{metrics['force_sum']:.3f}",
-                            f"{metrics['force_scaled']:.1f}", f"{metrics['max']:.3f}", f"{metrics['mean']:.4f}"])
-        else:
-            row = [region_label, str(metrics["area_px"]), f"{metrics['force_sum']:.4f}", f"{metrics['mean']:.6f}"]
-            csv_rows.append([base_name, region_label, metrics["area_px"], f"{metrics['force_sum']:.4f}",
-                            f"{metrics['mean']:.6f}"])
+        row = [region_label, fmt(metrics["area_um2"], nd=0), fmt(metrics["total_force_nN"], nd=2),
+               fmt(metrics["mean_pa"], nd=1), fmt(metrics["max_pa"], nd=1)]
+        csv_rows.append([base_name, region_label] + row[1:] + [metrics["n_px"]])
         table_rows.append(row)
     # Render as HTML table to avoid Streamlit's default row/column indices
     header = table_rows[0]
     body = table_rows[1:]
-    th_cells = "".join(
-        f'<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">{html.escape(str(h))}</th>'
-        for h in header
-    )
+    th_cells = "".join(f"<th>{html.escape(str(h))}</th>" for h in header)
     rows_html = [
         "<tr>"
-        + "".join(
-            f'<td style="border: 1px solid #ddd; padding: 8px;">{html.escape(str(c))}</td>'
-            for c in row
-        )
+        + "".join(f"<td>{html.escape(str(c))}</td>" for c in row)
         + "</tr>"
         for row in body
     ]
     table_html = (
-        f'<table style="border-collapse: collapse; width: 100%;">'
+        '<table class="s2f-region-table">'
         f"<thead><tr>{th_cells}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody></table>"
     )
@@ -263,7 +214,7 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
         left_col, right_col = st.columns(2, gap=None)
         with left_col:
             draw_mode = st.selectbox("Tool", DRAW_TOOLS, format_func=lambda x: TOOL_LABELS[x], key=f"draw_mode_region_{key_suffix}")
-            st.caption("Left-click add, right-click close.  \nForce map (draw region)")
+            st.caption("Left-click add, right-click close.  \nTraction stress map (draw region)")
             canvas_result = st_canvas(
                 fill_color="rgba(0, 188, 212, 0.25)", stroke_width=2, stroke_color="#00bcd4",
                 background_image=pil_bg, drawing_mode=draw_mode, update_streamlit=True,
@@ -273,14 +224,14 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
         with right_col:
             vals = cell_vals if cell_vals else original_vals
             if vals:
-                label = "Cell area" if cell_vals else "Full map"
+                label = "Force region" if cell_vals else "Full map"
                 st.markdown(
                     f'<p class="s2f-measure-vals-heading">{html.escape(label)}</p>'
                     f'<div class="s2f-measure-vals-panel"><div class="s2f-measure-vals-grid">'
-                    f"<span><strong>Sum:</strong> {vals['pixel_sum']:.1f}</span>"
-                    f"<span><strong>Force:</strong> {vals['force']:.1f}</span>"
-                    f"<span><strong>Max:</strong> {vals['max']:.3f}</span>"
-                    f"<span><strong>Mean:</strong> {vals['mean']:.3f}</span>"
+                    f"<span><strong>Mean:</strong> {fmt(vals.get('mean_pa'), 'Pa')}</span>"
+                    f"<span><strong>Max:</strong> {fmt(vals.get('max_pa'), 'Pa')}</span>"
+                    f"<span><strong>Area:</strong> {fmt(vals.get('area_um2'), 'µm²', 0)}</span>"
+                    f"<span><strong>Force:</strong> {fmt(vals.get('total_force_nN'), 'nN', 2)}</span>"
                     f"</div></div>",
                     unsafe_allow_html=True,
                 )
@@ -311,6 +262,6 @@ def render_region_canvas(display_heatmap, raw_heatmap=None, bf_img=None, origina
                 metrics_list = [cell_metrics] + metrics_list
             render_region_metrics_and_downloads(
                 metrics_list, masks, heatmap_rgb, input_filename, key_suffix, original_vals is not None,
-                first_region_label="Auto boundary" if (cell_mask is not None and np.any(cell_mask > 0)) else None,
+                first_region_label="Force region" if (cell_mask is not None and np.any(cell_mask > 0)) else None,
                 bf_img=bf_img, cell_mask=cell_mask, colormap_name=colormap_name,
             )

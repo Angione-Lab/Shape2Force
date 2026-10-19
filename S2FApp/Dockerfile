@@ -18,9 +18,14 @@ COPY requirements.txt requirements-docker.txt ./
 # Install Python dependencies - CPU-only PyTorch to fit Space memory limits (avoids OOM)
 # (psutil removed from requirements-docker.txt — optional CPU/RAM widget not used in app)
 # PyTorch 2.2 + torchvision 0.17 (CPU) - match requirements.txt torch>=2.0
-# Install numpy first with compatible version (<2) so torch.from_numpy works
+# Install numpy first with compatible version (<2) so torch.from_numpy works.
+# Pin the +cpu local version and use --extra-index-url (not --index-url) so pip
+# still uses PyPI for dependencies. --index-url hides PyPI; the PyTorch index then
+# serves typing-extensions/jinja2 wheels that current pip rejects ("inconsistent
+# Name"), and the source fallback cannot find flit_core.
 RUN pip install --no-cache-dir "numpy>=1.20.0,<2.0" && \
-    pip install --no-cache-dir torch==2.2.0 torchvision==0.17.0 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir "torch==2.2.0+cpu" "torchvision==0.17.0+cpu" \
+        --extra-index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements-docker.txt
 
 # Copy app code (chown for HF Spaces permissions)

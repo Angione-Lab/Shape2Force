@@ -17,18 +17,26 @@ S2F_ROOT = os.path.dirname(os.path.abspath(__file__))
 if S2F_ROOT not in sys.path:
     sys.path.insert(0, S2F_ROOT)
 
+from datetime import datetime, timezone
+
 from config.constants import (
+    APP_VERSION,
     BATCH_INFERENCE_SIZE,
     BATCH_MAX_IMAGES,
     COLORMAPS,
+    DEFAULT_IMAGE_UM_PER_PX,
     DEFAULT_SUBSTRATE,
     MODEL_TYPE_LABELS,
+    REFERENCE_SUBSTRATE,
     SAMPLE_EXTENSIONS,
     SAMPLE_THUMBNAIL_LIMIT,
+    SPHEROID_DEFAULT_CKP,
+    STRESS_MAX_PA,
 )
 from utils.paths import get_ckp_base, get_ckp_folder, get_sample_folder, list_files_in_folder, model_subfolder
 from utils.segmentation import estimate_cell_mask
-from utils.substrate_settings import list_substrates
+from utils.substrate_settings import get_settings_of_category, list_substrates
+from utils.units import make_scale
 from utils.display import apply_display_scale
 from ui.components import (
     build_original_vals,
@@ -98,7 +106,7 @@ def _get_measure_dialog_fn():
 
 def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, colormap_name,
                                     display_mode, auto_cell_boundary, cell_mask=None,
-                                    clip_min=0, clip_max=1, clamp_only=False):
+                                    clip_min=0, clip_max=1, clamp_only=False, scale=None):
     """Populate session state for the measure tool. If cell_mask is None and auto_cell_boundary, computes it."""
     if cell_mask is None and auto_cell_boundary:
         cell_mask = estimate_cell_mask(heatmap)
@@ -109,10 +117,10 @@ def _populate_measure_session_state(heatmap, img, pixel_sum, force, key_img, col
     st.session_state["measure_clamp_only"] = clamp_only
     st.session_state["measure_bf_img"] = img.copy()
     st.session_state["measure_input_filename"] = key_img or "image"
-    st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force)
+    st.session_state["measure_original_vals"] = build_original_vals(heatmap, pixel_sum, force, scale)
     st.session_state["measure_colormap"] = colormap_name
     st.session_state["measure_auto_cell_on"] = auto_cell_boundary
-    st.session_state["measure_cell_vals"] = build_cell_vals(heatmap, cell_mask, pixel_sum, force) if auto_cell_boundary else None
+    st.session_state["measure_cell_vals"] = build_cell_vals(heatmap, cell_mask, pixel_sum, force, scale) if auto_cell_boundary else None
     st.session_state["measure_cell_mask"] = cell_mask if auto_cell_boundary else None
 
 
@@ -131,7 +139,7 @@ if os.path.exists(_css_path):
 st.markdown("""
 <div class="s2f-header">
     <h1>🦠 Shape2Force (S2F)</h1>
-    <p>Predict traction force maps from bright-field microscopy images of cells or spheroids</p>
+    <p>Predict traction-stress magnitude maps (Pa) from bright-field microscopy images of cells or spheroids</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -221,19 +229,25 @@ with st.sidebar:
             ["single_cell", "spheroid"],
             format_func=lambda x: MODEL_TYPE_LABELS[x],
             horizontal=False,
-            help="Single cell: substrate-aware force prediction. Spheroid: spheroid force maps.",
+            help="Single cell: substrate-aware force prediction. Spheroid: spheroid traction stress maps.",
         )
 
         ckp_folder = get_ckp_folder(ckp_base, model_type)
         ckp_files = list_files_in_folder(ckp_folder, ".pth")
         ckp_subfolder_name = model_subfolder(model_type)
 
+        if model_type == "spheroid" and SPHEROID_DEFAULT_CKP in ckp_files:
+            ckp_files = [SPHEROID_DEFAULT_CKP] + [f for f in ckp_files if f != SPHEROID_DEFAULT_CKP]
+        _ckp_notes = {"ckp_spheroid_FN.pth": "recommended: smoother maps, 11.8 M parameters",
+                      "ckp_spheroid_GN.pth": "S2F adversarial model, 77 M parameters",
+                      "ckp_singlecell_GN.pth": "S2F, as in the paper"}
         if ckp_files:
             checkpoint = st.selectbox(
                 "Checkpoint",
                 ckp_files,
                 key=f"checkpoint_{model_type}",
-                help=f"Select a .pth file from ckp/{ckp_subfolder_name}/",
+                format_func=lambda f: f"{f} ({_ckp_notes[f]})" if f in _ckp_notes else f,
+                help=f"Select a .pth file from ckp/{ckp_subfolder_name}/. The architecture is read from the checkpoint.",
             )
         else:
             st.warning(f"No .pth files in ckp/{ckp_subfolder_name}/. Add checkpoints to load.")
@@ -241,37 +255,59 @@ with st.sidebar:
 
     substrate_config = None
     substrate_val = DEFAULT_SUBSTRATE
-    use_manual = True
+    use_manual = False
+    substrate_mode_label = "reference"
     if model_type == "single_cell":
         try:
             with st.container(border=False, key="s2f_grp_conditions"):
-                st.markdown('<p class="s2f-form-label s2f-form-label--section">Conditions</p>', unsafe_allow_html=True)
+                st.markdown('<p class="s2f-form-label s2f-form-label--section">Substrate setting (model input)</p>', unsafe_allow_html=True)
                 conditions_source = st.radio(
-                    "Conditions",
-                    ["From config", "Manually"],
+                    "Substrate setting",
+                    ["Reference (6 kPa)", "Preset", "Manual"],
                     horizontal=True,
                     label_visibility="collapsed",
+                    help="The released model is most accurate with the 6 kPa reference setting for all images, "
+                         "including cells on 1 or 10 kPa gels (sensitivity analysis in the paper). Other settings "
+                         "rescale the prediction and are provided for exploration only.",
                 )
-                from_config = conditions_source == "From config"
-                if from_config:
-                    substrate_config = None
+                if conditions_source == "Reference (6 kPa)":
+                    substrate_val = REFERENCE_SUBSTRATE
+                    st.caption("Recommended. Used for all results in the paper.")
+                elif conditions_source == "Preset":
+                    substrate_mode_label = "preset"
                     substrates = list_substrates()
                     substrate_val = st.selectbox(
-                        "Conditions (from config)",
-                        substrates,
-                        help="Select a preset from config/substrate_settings.json",
-                        label_visibility="collapsed",
+                        "Preset", substrates,
+                        index=substrates.index(REFERENCE_SUBSTRATE) if REFERENCE_SUBSTRATE in substrates else 0,
+                        help="Presets from config/substrate_settings.json", label_visibility="collapsed",
                     )
-                    use_manual = False
+                    if get_settings_of_category(substrate_val) != get_settings_of_category(REFERENCE_SUBSTRATE):
+                        st.warning("Settings other than the 6 kPa reference reduce accuracy (e.g. the 1 kPa setting "
+                                   "makes predictions about 5 times smaller). Use for exploration only.")
                 else:
-                    manual_pixelsize = st.number_input("Pixel size (µm/px)", min_value=0.1, max_value=50.0,
-                                                       value=3.0769, step=0.1, format="%.4f")
-                    manual_young = st.number_input("Pascals", min_value=100.0, max_value=100000.0,
+                    substrate_mode_label = "manual"
+                    manual_pixelsize = st.number_input("Pixel-size setting (TFM units, as in training)", min_value=0.1,
+                                                       max_value=50.0, value=3.0769, step=0.1, format="%.4f",
+                                                       help="Training used 3.0769 (fibroblasts) to 9.8138.")
+                    manual_young = st.number_input("Young's modulus (Pa)", min_value=100.0, max_value=100000.0,
                                                    value=6000.0, step=100.0, format="%.0f")
                     substrate_config = {"pixelsize": manual_pixelsize, "young": manual_young}
                     use_manual = True
+                    if (abs(manual_pixelsize - 3.0769) > 1e-3) or manual_young != 6000.0:
+                        st.warning("Settings other than the 6 kPa reference reduce accuracy. Use for exploration only.")
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
+
+    with st.container(border=False, key="s2f_grp_pixel"):
+        _def_px = DEFAULT_IMAGE_UM_PER_PX.get(model_type) or 0.0
+        image_um_per_px = st.number_input(
+            "Image pixel size (µm/px)",
+            min_value=0.0, max_value=100.0, value=float(_def_px), step=0.005, format="%.4f",
+            key=f"s2f_um_per_px_{model_type}",
+            help="Pixel size of the uploaded bright-field image, for the scale bar, area (µm²) and total force (nN). "
+                 "0 = unknown (only traction stress in Pa is reported). The single-cell training images "
+                 "(2048 x 2048 px) have 0.325 µm/px.",
+        ) or None
 
     batch_mode = st.toggle(
         "Batch mode",
@@ -280,18 +316,23 @@ with st.sidebar:
     )
 
     auto_cell_boundary = st.toggle(
-        "Auto boundary",
-        value=False,
-        help="When on: estimate cell region from force map and use it for metrics (red contour). When off: use entire map.",
+        "Measure force region only",
+        value=True,
+        help="On (recommended): the metrics are computed inside the region where the predicted traction stress is "
+             "high (red contour), so the empty background does not dilute the mean stress or the area. The region is "
+             "estimated automatically from the predicted map, not from the cell outline in the bright-field image. "
+             "Off: the metrics cover the whole image. For your own regions, use the Measure tool.",
     )
 
+    _smax = STRESS_MAX_PA["spheroid" if model_type == "spheroid" else "single_cell"]
     with st.container(border=False, key="s2f_grp_force"):
         force_scale_mode = st.radio(
-            "Force scale",
+            "Display range",
             ["Default", "Range"],
             horizontal=True,
             key="s2f_force_scale",
-            help="Default: display forces on the full 0–1 scale. Range: set a sub-range; values outside are zeroed and the rest is stretched to the colormap.",
+            help=f"Default: 0–{_smax:.0f} Pa (the full output scale of this model). Range: show a narrower window, "
+                 "e.g. 0–250 Pa; stresses above the window are shown in the top colour. Display only.",
         )
         if force_scale_mode == "Default":
             clip_min, clip_max = 0.0, 1.0
@@ -300,29 +341,14 @@ with st.sidebar:
         else:
             mn_col, mx_col = st.columns(2)
             with mn_col:
-                clip_min = st.number_input(
-                    "Min",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=0.0,
-                    step=0.01,
-                    format="%.2f",
-                    key="s2f_clip_min",
-                    help="Lower bound of the display range (0–1).",
-                )
+                lo_pa = st.number_input("Min (Pa)", min_value=0.0, max_value=_smax, value=0.0, step=_smax / 50,
+                                        format="%.0f", key=f"s2f_clip_min_pa_{model_type}")
             with mx_col:
-                clip_max = st.number_input(
-                    "Max",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=1.0,
-                    step=0.01,
-                    format="%.2f",
-                    key="s2f_clip_max",
-                    help="Upper bound of the display range (0–1).",
-                )
+                hi_pa = st.number_input("Max (Pa)", min_value=0.0, max_value=_smax, value=_smax, step=_smax / 50,
+                                        format="%.0f", key=f"s2f_clip_max_pa_{model_type}")
+            clip_min, clip_max = lo_pa / _smax, hi_pa / _smax
             if clip_min >= clip_max:
-                st.warning("Min must be less than max. Using 0.00–1.00 for display.")
+                st.warning(f"Min must be less than max. Using 0–{_smax:.0f} Pa.")
                 clip_min, clip_max = 0.0, 1.0
             display_mode = "Range"
             clamp_only = False
@@ -336,7 +362,7 @@ with st.sidebar:
             list(COLORMAPS.keys()),
             key="s2f_colormap",
             label_visibility="collapsed",
-            help="Color scheme for the force map. Viridis is often preferred for accessibility.",
+            help="Color scheme for the traction stress map. Viridis is often preferred for accessibility.",
         )
 
 
@@ -429,12 +455,40 @@ def _load_predictor(model_type, checkpoint, ckp_folder):
     )
 
 
+def _build_info(predictor, key_img, img, pred_time, image_um_per_px, display_mode, clip_min, clip_max, colormap_name,
+                auto_cell_boundary):
+    """Provenance of one prediction (shown in the app and written to CSV/PDF)."""
+    smax = STRESS_MAX_PA["spheroid" if predictor.model_type == "spheroid" else "single_cell"]
+    sub = None
+    if predictor.model_type == "single_cell":
+        settings = substrate_config if (use_manual and substrate_config) else get_settings_of_category(sub_val_for_info)
+        sub = {"mode": substrate_mode_label if substrate_mode_label != "reference" else "preset",
+               "name": None if use_manual else (sub_val_for_info + (" (reference)" if substrate_mode_label == "reference" else "")),
+               "pixelsize": float(settings["pixelsize"]), "young": float(settings["young"]),
+               **predictor.substrate_channels(sub_val_for_info, substrate_config if use_manual else None)}
+    rng = (clip_min * smax, clip_max * smax) if display_mode == "Range" else (0.0, smax)
+    return {
+        "input_file": key_img or "image", "time": pred_time, "model": predictor.describe(), "substrate": sub,
+        "image_shape": tuple(img.shape[:2]), "image_um_per_px": image_um_per_px, "stress_max_pa": smax,
+        "display": {"mode": display_mode, "range_pa": rng, "colormap": colormap_name},
+        "auto_boundary": bool(auto_cell_boundary), "app_version": APP_VERSION,
+        "app_commit": os.environ.get("S2F_APP_COMMIT", ""),
+    }
+
+
+sub_val_for_info = substrate_val if (model_type == "single_cell" and not use_manual) else DEFAULT_SUBSTRATE
+
+
 def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, auto_cell_boundary,
                                      clip_min, clip_max, clamp_only,
                                      download_key_suffix="", check_measure_dialog=False,
                                      show_success=False):
     """Prepare display from cached result and render. Used by both just_ran and has_cached paths."""
     img, heatmap, force, pixel_sum = r["img"], r["heatmap"], r["force"], r["pixel_sum"]
+    predictor = _load_predictor(model_type, checkpoint, ckp_folder)
+    scale = make_scale(model_type, image_um_per_px, img.shape[:2], heatmap.shape)
+    info = _build_info(predictor, key_img, img, r.get("time", "–"), image_um_per_px, display_mode, clip_min, clip_max,
+                       colormap_name, auto_cell_boundary)
     display_heatmap = apply_display_scale(
         heatmap, display_mode,
         clip_min=clip_min,
@@ -445,7 +499,7 @@ def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, a
     _populate_measure_session_state(
         heatmap, img, pixel_sum, force, key_img, colormap_name,
         display_mode, auto_cell_boundary, cell_mask=cell_mask,
-        clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
+        clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only, scale=scale,
     )
     if check_measure_dialog and st.session_state.pop("open_measure_dialog", False):
         measure_region_dialog()
@@ -460,7 +514,21 @@ def _prepare_and_render_cached_result(r, key_img, colormap_name, display_mode, a
         auto_cell_boundary=auto_cell_boundary,
         cell_mask=cell_mask,
         clip_min=clip_min, clip_max=clip_max, clamp_only=clamp_only,
+        scale=scale, info=info,
     )
+
+
+def _attach_batch_info(results):
+    """Physical scale and provenance for each batch result (depends on current sidebar settings)."""
+    predictor = _load_predictor(model_type, checkpoint, ckp_folder)
+    for r in results:
+        r["scale"] = make_scale(model_type, image_um_per_px, r["img"].shape[:2], r["heatmap"].shape)
+        r["info"] = _build_info(predictor, r["key_img"], r["img"], r.get("time", "–"), image_um_per_px, display_mode,
+                                clip_min, clip_max, colormap_name, auto_cell_boundary)
+
+
+def _utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 if just_ran_batch:
@@ -484,6 +552,7 @@ if just_ran_batch:
                 pred_results.extend(chunk_results)
                 progress_bar.progress(min(start + len(chunk), n_images) / n_images,
                                      text=f"Predicting {len(pred_results)} / {n_images} images")
+            pred_time = _utc_now()
             batch_results = [
                 {
                     "img": img_b.copy(),
@@ -491,11 +560,13 @@ if just_ran_batch:
                     "force": force,
                     "pixel_sum": pixel_sum,
                     "key_img": key_b,
+                    "time": pred_time,
                     "cell_mask": estimate_cell_mask(heatmap) if auto_cell_boundary else None,
                 }
                 for (img_b, key_b), (heatmap, force, pixel_sum) in zip(imgs_batch, pred_results)
             ]
             st.session_state["batch_results"] = batch_results
+            _attach_batch_info(batch_results)
             progress_bar.empty()
             st.success(f"Prediction complete for {len(batch_results)} image(s)!")
             render_batch_results(
@@ -514,6 +585,7 @@ if just_ran_batch:
             st.code(traceback.format_exc())
 
 elif batch_mode and st.session_state.get("batch_results"):
+    _attach_batch_info(st.session_state["batch_results"])
     render_batch_results(
         st.session_state["batch_results"],
         colormap_name=colormap_name,
@@ -542,6 +614,7 @@ elif just_ran:
                 "force": force,
                 "pixel_sum": pixel_sum,
                 "cache_key": cache_key,
+                "time": _utc_now(),
             }
             st.session_state["prediction_result"] = r
             _prepare_and_render_cached_result(
