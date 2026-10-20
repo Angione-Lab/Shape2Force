@@ -100,6 +100,8 @@ def main():
     ap.add_argument("--query", action="append", required=True, help="LABEL=FOLDER (repeatable)")
     ap.add_argument("--dataset-root", default=DEFAULT_DATASET_ROOT)
     ap.add_argument("--near", type=float, default=0.95, help="correlation threshold for a near match")
+    ap.add_argument("--pattern", default="bf",
+                    help='only files whose name contains this text (case-insensitive); use --pattern "" for all images')
     a = ap.parse_args()
 
     splits = load_splits()
@@ -108,8 +110,16 @@ def main():
     summary = []
     for q in a.query:
         label, folder = q.split("=", 1)
+        folder = folder.strip().strip('"')
+        if not os.path.isdir(folder):
+            print(f"  [{label}] folder not found: {folder}")
+            continue
         files = [f for f in glob.glob(os.path.join(folder, "**", "*"), recursive=True)
-                 if os.path.isfile(f) and "bf" in os.path.basename(f).lower() and f.lower().endswith(EXTS)]
+                 if os.path.isfile(f) and a.pattern.lower() in os.path.basename(f).lower() and f.lower().endswith(EXTS)]
+        print(f"  [{label}] {len(files)} images found in {folder}")
+        if not files:
+            print(f"  [{label}] no image names contain '{a.pattern}'; rerun with --pattern \"\" to use every image")
+            continue
         out = []
         for f in sorted(files):
             h = md5(f)
@@ -134,6 +144,9 @@ def main():
         cnt = {r: int(df["roles"].str.contains(r).sum()) for r in ("train", "validation", "test")}
         summary.append({"label": label, "images": n, **cnt, "not_in_ML_dataset": int((df["match"] == "none").sum()),
                         "exact": int((df["match"] == "exact").sum()), "near": int((df["match"] == "near").sum())})
+    if not summary:
+        print("no images checked")
+        return
     s = pd.DataFrame(summary)
     print(s.to_string(index=False))
     print(f"\nper-image results: {AUDIT_DIR}/overlap_<label>.csv")
