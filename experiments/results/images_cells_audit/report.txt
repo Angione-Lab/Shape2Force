@@ -1,0 +1,69 @@
+images_cells: C:\Users\Kaveh\Documents\Shape2Force\dataset\images_cells
+ML dataset  : C:\Users\Kaveh\Documents\Shape2Force\dataset (701 images found, 0 matched by MD5 only)
+legacy tree : C:/Users/Kaveh/Documents/cellforce/dataset/single_cell
+positions: 447  (unique bright-field images: 284)
+
+Status by condition and set:
+status                                                ML independent test  ML training  ML validation  positions  condition_mismatch_ML  same_image_other_condition
+condition_folder set_folder                                                                                                                                        
+01kPa            SUM_FORCE_SET_Extra_LOW_1kPa                           0           18              0         18                     18                          18
+                 Sum_Force_Values_01kPa_SET_I&II                        0            0             15         15                      0                           0
+                 Sum_Force_Values_01kPa_SET_III                        17            0              0         17                      0                           0
+06kPa_DMSO       Sum_Force_Values_DMSO_SET_I                            0            5              0          5                      5                           5
+                 Sum_Force_Values_DMSO_SET_II                          11            0              0         11                      0                           1
+                 Sum_Force_Values_DMSO_SET_IIII                         0           13              0         13                     13                           2
+06kPa_TGF-b      SUM_FORCE_SET_V_extra_STRONG_10kPa                     0           38              0         38                     38                          38
+                 Sum_Force_SET_I_TGFB                                  15            0              0         15                      0                           0
+                 Sum_Force_SET_VI_extra_STRONG_10kPa                    0            1             27         28                     28                          28
+06kPa_Untreated  SUM_FORCE_SET_II_Normal                                0           51              0         51                      0                          12
+                 SUM_FORCE_SET_VI_Normal                                0            0             46         46                      0                          27
+                 SUM_FORCE_SET_V_Normal                                 0           56              0         56                      0                          54
+06kPa_Y27632     SUM_FORCE_SET_II_extra_LOW_Y27632                      0           12              0         12                     12                          12
+                 Sum_Force_Values_Y27632_SET_I                         16            0              0         16                      0                           0
+                 Sum_Force_Values_Y27632_SET_II                        20            0              0         20                      0                           1
+10_kPa           SUM_FORCE_SET_V_extra_STRONG_10kPa                     0           38              0         38                     38                          38
+                 Sum_Force_10kPa_SET_I                                  0            0             20         20                      0                           0
+                 Sum_Force_SET_VI_extra_STRONG_10kPa                    0            1             27         28                     28                          28
+
+Status by condition (all sets):
+status            ML independent test  ML training  ML validation
+condition_folder                                                 
+01kPa                              17           18             15
+06kPa_DMSO                         11           18              0
+06kPa_TGF-b                        15           39             27
+06kPa_Untreated                     0          107             46
+06kPa_Y27632                       36           12              0
+10_kPa                              0           39             47
+
+Positions whose image is in the ML dataset under ANOTHER condition: 180
+condition_folder  set_folder                           ml_conditions 
+01kPa             SUM_FORCE_SET_Extra_LOW_1kPa         6 kPa collagen    18
+06kPa_DMSO        Sum_Force_Values_DMSO_SET_I          6 kPa collagen     5
+                  Sum_Force_Values_DMSO_SET_IIII       6 kPa collagen    13
+06kPa_TGF-b       SUM_FORCE_SET_V_extra_STRONG_10kPa   6 kPa collagen    38
+                  Sum_Force_SET_VI_extra_STRONG_10kPa  6 kPa collagen    28
+06kPa_Y27632      SUM_FORCE_SET_II_extra_LOW_Y27632    6 kPa collagen    12
+10_kPa            SUM_FORCE_SET_V_extra_STRONG_10kPa   6 kPa collagen    38
+                  Sum_Force_SET_VI_extra_STRONG_10kPa  6 kPa collagen    28
+
+Positions whose image also appears under another condition inside images_cells: 264
+condition_folder  set_folder                         
+01kPa             SUM_FORCE_SET_Extra_LOW_1kPa           18
+06kPa_DMSO        Sum_Force_Values_DMSO_SET_I             5
+                  Sum_Force_Values_DMSO_SET_II            1
+                  Sum_Force_Values_DMSO_SET_IIII          2
+06kPa_TGF-b       SUM_FORCE_SET_V_extra_STRONG_10kPa     38
+                  Sum_Force_SET_VI_extra_STRONG_10kPa    28
+06kPa_Untreated   SUM_FORCE_SET_II_Normal                12
+                  SUM_FORCE_SET_VI_Normal                27
+                  SUM_FORCE_SET_V_Normal                 54
+06kPa_Y27632      SUM_FORCE_SET_II_extra_LOW_Y27632      12
+                  Sum_Force_Values_Y27632_SET_II          1
+10_kPa            SUM_FORCE_SET_V_extra_STRONG_10kPa     38
+                  Sum_Force_SET_VI_extra_STRONG_10kPa    28
+
+Traction map agreement for matched images (images_cells colour map vs ML grey map): median r = 0.999, 0 of 447 below 0.9
+
+NEW positions (not in the ML dataset or the legacy tree): 0
+  none
+

@@ -1,0 +1,19 @@
+condition_folder,set_folder,ML independent test,ML training,ML validation,positions,condition_mismatch_ML,same_image_other_condition
+01kPa,SUM_FORCE_SET_Extra_LOW_1kPa,0,18,0,18,18,18
+01kPa,Sum_Force_Values_01kPa_SET_I&II,0,0,15,15,0,0
+01kPa,Sum_Force_Values_01kPa_SET_III,17,0,0,17,0,0
+06kPa_DMSO,Sum_Force_Values_DMSO_SET_I,0,5,0,5,5,5
+06kPa_DMSO,Sum_Force_Values_DMSO_SET_II,11,0,0,11,0,1
+06kPa_DMSO,Sum_Force_Values_DMSO_SET_IIII,0,13,0,13,13,2
+06kPa_TGF-b,SUM_FORCE_SET_V_extra_STRONG_10kPa,0,38,0,38,38,38
+06kPa_TGF-b,Sum_Force_SET_I_TGFB,15,0,0,15,0,0
+06kPa_TGF-b,Sum_Force_SET_VI_extra_STRONG_10kPa,0,1,27,28,28,28
+06kPa_Untreated,SUM_FORCE_SET_II_Normal,0,51,0,51,0,12
+06kPa_Untreated,SUM_FORCE_SET_VI_Normal,0,0,46,46,0,27
+06kPa_Untreated,SUM_FORCE_SET_V_Normal,0,56,0,56,0,54
+06kPa_Y27632,SUM_FORCE_SET_II_extra_LOW_Y27632,0,12,0,12,12,12
+06kPa_Y27632,Sum_Force_Values_Y27632_SET_I,16,0,0,16,0,0
+06kPa_Y27632,Sum_Force_Values_Y27632_SET_II,20,0,0,20,0,1
+10_kPa,SUM_FORCE_SET_V_extra_STRONG_10kPa,0,38,0,38,38,38
+10_kPa,Sum_Force_10kPa_SET_I,0,0,20,20,0,0
+10_kPa,Sum_Force_SET_VI_extra_STRONG_10kPa,0,1,27,28,28,28

@@ -1,0 +1,1 @@
+condition_folder,condition,set_folder,position,pos_num,b_copy,status,match,near_r,ml_where,ml_conditions,condition_mismatch_ML,legacy_where,gt_map_r,same_image_elsewhere_in_images_cells,same_image_other_condition_in_images_cells,bf_md5,rel,q_Cell_Area,q_Cell_Areaper1000,q_GT_Force_Lauti,q_GT_Force_Lauti_per_Area,q_Pred_Force,q_Fred_Force_per_Area
