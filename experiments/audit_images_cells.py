@@ -1,16 +1,19 @@
 """
 Audit of the cell folders behind the paper figures (`images_cells/`) against the ML dataset.
 
-    python -m experiments.audit_images_cells ^
-        --images-cells C:/Users/Kaveh/Documents/cellforce/dataset/images_cells ^
-        --legacy-root  C:/Users/Kaveh/Documents/cellforce/dataset/single_cell
+    python -m experiments.audit_images_cells
+
+Defaults: images_cells = <dataset root>/images_cells and the ML dataset = the sample folders listed in
+experiments/splits/*.csv under the same dataset root (Shape2Force/dataset, i.e. layout.DEFAULT_DATASET_ROOT;
+the folders that experiments/prepare_dataset.py copied from the legacy tree). Optionally add
+--legacy-root C:/Users/Kaveh/Documents/cellforce/dataset/single_cell to also search folders of the old tree
+that were never part of the ML splits.
 
 For every position folder in images_cells/<condition>/<set>/<Position_*>/ it answers:
   1. Is the bright-field image (BF_001.tif) part of the ML dataset, and in which role
      (training / validation / independent test)?  Exact match = identical file (MD5);
      near match = same image re-saved (128 x 128 thumbnails, Pearson r >= --near).
-  2. If not in the ML dataset, is it anywhere else in the legacy tree (--legacy-root)?
-     If not, it is a NEW sample.
+  2. If not in the ML dataset, is it in the legacy tree (only with --legacy-root)? If not, it is NEW.
   3. Does its condition (1 / 6 / 10 kPa, DMSO, Y-27632, TGF-b) agree with the condition of the
      matching ML sample? A mismatch means the same image is used under two conditions.
   4. Is the same bright-field image used in more than one condition or set inside images_cells?
@@ -175,6 +178,20 @@ def walk_legacy(root):
     return pd.DataFrame(out)
 
 
+def walk_ml(splits, dataset_root):
+    """The ML samples listed in the split files, as found under the dataset root."""
+    out, missing = [], 0
+    for h, g in splits.groupby("bf_md5"):
+        d = os.path.join(dataset_root, g["sample_dir"].iloc[0])
+        bf = find_file(d, r".*BF_001\.tif{1,2}") if os.path.isdir(d) else None
+        if bf is None:
+            missing += 1
+            continue
+        gray = find_file(d, r".*_gray\.jpe?g")
+        out.append(dict(folder="ML:" + g["sample_dir"].iloc[0], bf=bf, gray=gray, md5=h))
+    return pd.DataFrame(out), missing
+
+
 def ml_where(splits):
     """md5 -> (roles, description, conditions, sample_dir of one copy)."""
     s = splits.copy()
@@ -192,34 +209,47 @@ def ml_where(splits):
 # ----------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--images-cells", required=True)
-    ap.add_argument("--legacy-root", required=True, help="e.g. C:/Users/Kaveh/Documents/cellforce/dataset/single_cell")
-    ap.add_argument("--dataset-root", default=DEFAULT_DATASET_ROOT, help="prepared ML dataset (for the grey maps)")
+    ap.add_argument("--dataset-root", default=DEFAULT_DATASET_ROOT,
+                    help="Shape2Force dataset folder (ML samples of the split files + images_cells)")
+    ap.add_argument("--images-cells", default=None, help="default: <dataset-root>/images_cells")
+    ap.add_argument("--legacy-root", default=None,
+                    help="optional: old tree, e.g. C:/Users/Kaveh/Documents/cellforce/dataset/single_cell")
     ap.add_argument("--near", type=float, default=0.95)
     a = ap.parse_args()
+    a.images_cells = a.images_cells or os.path.join(a.dataset_root, "images_cells")
+    if not os.path.isdir(a.images_cells):
+        raise SystemExit(f"images_cells not found: {a.images_cells}")
     os.makedirs(OUT_DIR, exist_ok=True)
     cache = Cache()
+    splits = load_splits()
 
     print("1/5 reading images_cells ...", flush=True)
     P = walk_images_cells(a.images_cells)
     print(f"    {len(P)} position folders, {P['bf'].notna().sum()} with BF_001.tif")
-    print("2/5 reading legacy tree ...", flush=True)
-    Lg = walk_legacy(a.legacy_root)
-    print(f"    {len(Lg)} folders with a bright-field image")
+    print("2/5 reading the ML dataset (split files) ...", flush=True)
+    Lg, missing = walk_ml(splits, a.dataset_root)
+    print(f"    {len(Lg)} of {splits['bf_md5'].nunique()} ML images found under {a.dataset_root}")
+    if missing:
+        print(f"    WARNING: {missing} ML images not found locally; they are matched by MD5 only (from the split files)")
+    if a.legacy_root:
+        lg = walk_legacy(a.legacy_root)
+        lg["folder"] = "legacy:" + lg["folder"]
+        print(f"    + {len(lg)} folders with a bright-field image in the legacy tree")
+        Lg = pd.concat([Lg, lg], ignore_index=True)
 
     print("3/5 MD5 and thumbnails ...", flush=True)
     for i, p in enumerate(Lg["bf"]):
         if i % 200 == 0:
-            print(f"    legacy {i}/{len(Lg)}", flush=True)
-    Lg["md5"] = [cache.get_md5(p) for p in Lg["bf"]]
+            print(f"    reference images {i}/{len(Lg)}", flush=True)
+    Lg["md5"] = [h if isinstance(h, str) else cache.get_md5(p) for h, p in zip(Lg.get("md5", [None] * len(Lg)), Lg["bf"])]
     Lthumb = np.stack([cache.get_thumb(p) for p in Lg["bf"]]) if len(Lg) else np.zeros((0, THUMB * THUMB))
     P["bf_md5"] = [cache.get_md5(p) if p else None for p in P["bf"]]
     Pthumb = np.stack([cache.get_thumb(p) if p else np.zeros(THUMB * THUMB, np.float32) for p in P["bf"]])
     cache.save()
 
-    splits = load_splits()
     W = ml_where(splits)
-    legacy_by_md5 = Lg.groupby("md5")["folder"].apply(lambda v: "; ".join(sorted(v))).to_dict()
+    lg_only = Lg[Lg["folder"].str.startswith("legacy:")]
+    legacy_by_md5 = lg_only.groupby("md5")["folder"].apply(lambda v: "; ".join(sorted(v))).to_dict()
     gray_by_md5 = Lg.dropna(subset=["gray"]).groupby("md5")["gray"].first().to_dict()
 
     print("4/5 matching ...", flush=True)
@@ -266,7 +296,7 @@ def main():
             return "ML independent test"
         if x["match"] in ("exact", "near"):
             return "legacy tree only"
-        return "NEW"
+        return "NEW" if a.legacy_root else "NEW (not in ML dataset)"
     P["status"] = P.apply(status, axis=1)
     P["condition_mismatch_ML"] = P.apply(
         lambda x: bool(x["ml_conditions"]) and x["condition"] not in x["ml_conditions"].split(";"), axis=1)
@@ -302,13 +332,14 @@ def main():
     S.to_csv(os.path.join(OUT_DIR, "summary.csv"))
     MM = P[P["condition_mismatch_ML"] | P["same_image_other_condition_in_images_cells"]]
     MM[cols].to_csv(os.path.join(OUT_DIR, "condition_mismatch.csv"), index=False)
-    NEW = P[P["status"] == "NEW"]
+    NEW = P[P["status"].str.startswith("NEW")]
     NEW[cols].to_csv(os.path.join(OUT_DIR, "new_samples.csv"), index=False)
 
     pd.set_option("display.width", 250)
     pd.set_option("display.max_columns", 30)
     lines = [
-        f"images_cells: {a.images_cells}", f"legacy tree : {a.legacy_root}",
+        f"images_cells: {a.images_cells}", f"ML dataset  : {a.dataset_root} ({len(Lg) - len(lg_only)} images found, "
+        f"{missing} matched by MD5 only)", f"legacy tree : {a.legacy_root or 'not searched'}",
         f"positions: {len(P)}  (unique bright-field images: {P['bf_md5'].nunique()})", "",
         "Status by condition and set:", S.to_string(), "",
         "Status by condition (all sets):",
@@ -329,7 +360,7 @@ def main():
         lines += ["", f"Traction map agreement for matched images (images_cells colour map vs ML grey map): "
                       f"median r = {P.loc[m, 'gt_map_r'].median():.3f}, "
                       f"{int((P.loc[m, 'gt_map_r'] < 0.9).sum())} of {int(m.sum())} below 0.9"]
-    lines += ["", f"NEW positions (not in the ML dataset or the legacy tree): {len(NEW)}",
+    lines += ["", f"NEW positions (not in the ML dataset{' or the legacy tree' if a.legacy_root else ''}): {len(NEW)}",
               NEW.groupby(["condition_folder", "set_folder"]).size().rename("n").to_string() if len(NEW) else "  none",
               "", f"Near-match threshold r >= {a.near}; the highest r of an unmatched image is "
                   f"{P.loc[P['match'] == 'none', 'near_r'].max():.3f}" if (P["match"] == "none").any() else ""]
