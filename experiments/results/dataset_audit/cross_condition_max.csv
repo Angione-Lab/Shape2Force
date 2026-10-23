@@ -1,0 +1,15 @@
+split_file,set,condition,count,max
+alltune_train,10kpa_new/train,10 kPa collagen,28,0.6751427
+alltune_train,1kpa_new/train,1 kPa collagen,16,0.5059016
+alltune_train,fibro_split/train,6 kPa collagen,236,0.8130081
+alltune_val,10kpa_new/test,10 kPa collagen,20,0.5917903
+alltune_val,1kpa_new/test,1 kPa collagen,15,0.6045017
+alltune_val,fibro_split/test,6 kPa collagen,46,0.76940334
+test_fibro_1kPa_setIII,1kPa_SET_III,1 kPa collagen,17,0.48303187
+test_fibro_DMSO_setI,Control_SET_I,DMSO,27,0.7741945
+test_fibro_DMSO_setII,DMSO_SET_II,DMSO,11,0.99999994
+test_fibro_TGFb_setI,TGFB_SET_I,TGF-beta,15,0.4563567
+test_fibro_Y27632_setI,Y27632_SET_I,Y-27632,16,0.523742
+test_fibro_Y27632_setII,Y27632_SET_II,Y-27632,20,0.99999994
+test_fibro_fibronectin_setI,Fibronectin_SET_I,fibronectin,40,0.61567926
+test_u2os_6kPa,U2OS/test,U2OS,39,0.8130081
