@@ -92,6 +92,21 @@ def _done(phase_dir, epochs):
             and os.path.exists(os.path.join(phase_dir, "best_checkpoint.pth")))
 
 
+def load_expanding(G, state):
+    """Load a state dict into G; input convolutions saved with 1 input channel are extended to G's input channels
+    with zero weights for the new channels (function-preserving expansion, as in the released model)."""
+    own, new, expanded = G.state_dict(), {}, []
+    for k, v in state.items():
+        t = own.get(k)
+        if t is not None and v.dim() == 4 and t.dim() == 4 and v.shape[1] == 1 and t.shape[1] > 1 \
+                and v.shape[0] == t.shape[0] and v.shape[2:] == t.shape[2:]:
+            w = torch.zeros_like(t); w[:, :1] = v.to(t.dtype); new[k] = w; expanded.append(k)
+        else:
+            new[k] = v
+    G.load_state_dict(new, strict=True)
+    return expanded
+
+
 def run_phase(G, ph, phase_dir, cfg, train_loader, val_loader, norm, device, resume, max_batches):
     """One training phase. Fresh discriminator, optimisers and schedule (as in the original staged training);
     the generator continues from its current weights. Checkpoint selection: lowest validation loss of this phase."""
@@ -218,6 +233,9 @@ def train(cfg, run_dir, dataset_root=DEFAULT_DATASET_ROOT, device=None, resume=F
             if _done(src, ph["epochs"]):
                 print(f"[phase1] identical to {shared} (same seed, data and phase-1 settings) - copying {src}")
                 shutil.copytree(src, phase_dir, dirs_exist_ok=True)
+            elif cfg.get("expand_from_image_only"):
+                raise SystemExit(f"{cfg['variant']} needs the finished image-only phase 1 of {shared} seed "
+                                 f"{cfg['seed']} in {src}")
             else:
                 print(f"[phase1] {shared} phase 1 not finished yet - training phase 1 for this run")
         if _done(phase_dir, ph["epochs"]) and (resume or shared):
@@ -227,7 +245,11 @@ def train(cfg, run_dir, dataset_root=DEFAULT_DATASET_ROOT, device=None, resume=F
             hist = run_phase(G, ph, phase_dir, cfg, train_loader, val_loader, norm, device, resume, max_batches)
         all_hist += hist
         best_ck = torch.load(os.path.join(phase_dir, "best_checkpoint.pth"), map_location="cpu", weights_only=False)
-        G.load_state_dict(best_ck["generator_state_dict"])          # next phase starts from this phase's best
+        if cfg.get("expand_from_image_only") and ph["name"] == "phase1":
+            ex = load_expanding(G, best_ck["generator_state_dict"])   # image-only phase 1 -> + substrate channels
+            print(f"[phase1] image-only generator loaded; zero-initialised substrate weights added to {ex}")
+        else:
+            G.load_state_dict(best_ck["generator_state_dict"])      # next phase starts from this phase's best
     best_ck["config"] = cfg
     torch.save(best_ck, os.path.join(run_dir, "best_checkpoint.pth"))   # final model = best of the last phase
     json.dump(all_hist, open(os.path.join(run_dir, "history.json"), "w"), indent=1)   # written last = run finished

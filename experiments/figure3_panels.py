@@ -61,15 +61,18 @@ def _has_pair(d):
     return any(f.endswith("BF_001.tif") for f in fs) and any(f.endswith("_gray.jpg") for f in fs)
 
 
-def infer(dataset_root, device=None, batch=2, model="released", stage1=None):
+def infer(dataset_root, device=None, batch=2, model="released", stage1=None, substrate="legacy", manifests=None, tag=None,
+          out=None):
+    """substrate: 'nominal' = settings of the modulus each set was imaged on; 'legacy' = original codes."""
     import torch
     from experiments.evaluate import CONFIG_PATH, released_models, stage1_model
+    from experiments.losses import PerImageWFMRMELoss
     from experiments.manifest_data import make_loader
     from models.s2f_model import create_settings_channels
     from utils.metrics import TorchMetricsWrapper
     from utils.substrate_settings import compute_settings_normalization
 
-    est = _segmentation()
+    est, rme = _segmentation(), PerImageWFMRMELoss()
     dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     if model == "image_only":
         if not stage1 or not os.path.exists(stage1):
@@ -79,7 +82,7 @@ def infer(dataset_root, device=None, batch=2, model="released", stage1=None):
         g, use_settings = released_models(dev)["released_singlecell"]["model"], True
     mw, norm = TorchMetricsWrapper(device=dev), compute_settings_normalization(config_path=CONFIG_PATH)
     rows, tmpdir = [], tempfile.mkdtemp()
-    for man in MANIFESTS:
+    for man in (manifests or MANIFESTS):
         mrows = read_manifest(manifest_path(man))
         keep = [r for r in mrows if _has_pair(os.path.join(dataset_root, r["sample_dir"]))]
         print(f"{man}: {len(keep)}/{len(mrows)} samples found", flush=True)
@@ -87,7 +90,7 @@ def infer(dataset_root, device=None, batch=2, model="released", stage1=None):
             continue
         tmp = os.path.join(tmpdir, f"{man}.csv")
         pd.DataFrame(keep).to_csv(tmp, index=False)
-        loader = make_loader(tmp, dataset_root, batch_size=batch, substrate_mode="legacy" if use_settings else "none")
+        loader = make_loader(tmp, dataset_root, batch_size=batch, substrate_mode=substrate if use_settings else "none")
         meta_rows, k = loader.dataset.rows, 0
         with torch.no_grad():
             for b in loader:
@@ -107,7 +110,7 @@ def infer(dataset_root, device=None, batch=2, model="released", stage1=None):
                     rows.append({
                         "manifest": man, "sample_dir": r["sample_dir"], "set": r.get("set", ""),
                         "condition": r.get("condition", ""), "bf_md5": r.get("bf_md5", ""),
-                        "mse": mw.compute_mse(t, q), "ms_ssim": mw.compute_ms_ssim(t, q),
+                        "mse": mw.compute_mse(t, q), "ms_ssim": mw.compute_ms_ssim(t, q), "rme": float(rme(q, t)),
                         "pixel_r": float(np.corrcoef(tn.ravel(), qn.ravel())[0, 1]),
                         "field_mean_gt_Pa": float(tn.mean()) * yt, "field_mean_pred_Pa": float(qn.mean()) * yt,
                         "region_mean_gt_Pa": float(tn[mu].mean()) * yt, "region_mean_pred_Pa": float(qn[mu].mean()) * yt,
@@ -115,8 +118,9 @@ def infer(dataset_root, device=None, batch=2, model="released", stage1=None):
                         "own_region_mean_pred_Pa": float(qn[mp].mean()) * yt,
                         "region_frac": float(mu.mean())})
         print(f"  done {man} ({len(rows)} images so far)", flush=True)
-    os.makedirs(OUT, exist_ok=True)
-    f = os.path.join(OUT, f"per_image_fig3_{model}.csv")
+    out = out or OUT
+    os.makedirs(out, exist_ok=True)
+    f = os.path.join(out, f"per_image_fig3_{tag or model}.csv")
     pd.DataFrame(rows).to_csv(f, index=False)
     print("wrote", f)
 

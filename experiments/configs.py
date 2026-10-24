@@ -61,6 +61,13 @@ VARIANTS = {
     "s2f_no_substrate_no_multiscale":    dict(in_channels=1, substrate_mode="none", use_multi_scale_input=False),
     "s2f_no_substrate_bridge_plain":     dict(in_channels=1, substrate_mode="none", bridge="plain"),
     "s2f_no_substrate_no_attention_gates": dict(in_channels=1, substrate_mode="none", attention_gates=False),
+    # staged substrate conditioning, as in the released model: phase 1 is the image-only phase 1 of
+    # 's2f_no_substrate' (same seed, copied); the first convolution(s) are then extended to the two substrate
+    # channels with zero-initialised weights (function-preserving), and phase 2 is trained with the substrate
+    # channels. Control = 's2f_no_substrate' (same phase 1, phase 2 without substrate channels).
+    "s2f_staged":                        dict(share_phase1_with="s2f_no_substrate", expand_from_image_only=True),
+    "s2f_staged_no_force":               dict(share_phase1_with="s2f_no_substrate", expand_from_image_only=True,
+                                              lambda_force=0.0),
 }
 
 # Recommended order if GPU time is limited (S2F about 7 h per run on an RTX A6000, U-Net about 2.5 h)

@@ -151,6 +151,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "eval"))
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--device", default=None)
+    ap.add_argument("--run-modes", default=None,
+                    help="substrate modes for trained runs with substrate channels, e.g. legacy,nominal (default: run config)")
     a = ap.parse_args()
     device = torch.device(a.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     mans = [m for m in (a.manifests.split(",") if a.manifests else list_manifests()) if m]
@@ -172,6 +174,8 @@ def main():
                        "val_loss": spec.get("val_loss")})
         targets = sc_mans if spec["kind"] == "singlecell" else sph_mans
         modes = [spec.get("substrate_mode", "legacy")]
+        if a.run_modes and spec.get("in_channels", 1) == 3 and name not in ("released_singlecell",):
+            modes = [m for m in a.run_modes.split(",") if m]
         if name == "released_singlecell":
             modes = ["legacy", "nominal"] + ([f"force:{k}" for k in SWEEP_KEYS] if a.sweep else [])
         for m in targets:
