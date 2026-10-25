@@ -19,3 +19,5 @@ outputs/*
 !outputs/.gitkeep
 S2F_results_v2/
 S2F_results_*/
+
+experiments/results/predictions
