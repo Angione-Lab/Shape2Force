@@ -12,7 +12,7 @@ Layout written to --out (default: S2F_results_v2 next to the repository):
   predictions/<model>/{train,validation,test}/<set>/<sample>/
       panel.png                bright field | GT | prediction, 0-500 Pa (spheroids 0-50 Pa), all metrics printed
       prediction.png           predicted traction-stress map with Pa colour bar
-      prediction_Pa.tif        32-bit float map in Pa (1024 x 1024, model resolution)
+      prediction_Pa.tif        only with --with-tif: 32-bit float map in Pa (1024 x 1024, model resolution)
     models: released (single cell, BF + substrate channels, 6 kPa reference setting), image_only (stage i of the
             released model), spheroid_GN (paper), spheroid_FN (web-app default)
   results.xlsx (and results_csv/*.csv)
@@ -91,9 +91,10 @@ def sha256(path, buf=1 << 20):
 
 
 # ------------------------------------------------------------------------------------------- figures
-def save_maps(pdir, bf, gt_pa, pr_pa, vmax, d, title, plt, Image):
+def save_maps(pdir, bf, gt_pa, pr_pa, vmax, d, title, plt, Image, with_tif=False):
     os.makedirs(pdir, exist_ok=True)
-    Image.fromarray(pr_pa.astype(np.float32)).save(os.path.join(pdir, "prediction_Pa.tif"), compression="tiff_adobe_deflate")
+    if with_tif:
+        Image.fromarray(pr_pa.astype(np.float32)).save(os.path.join(pdir, "prediction_Pa.tif"), compression="tiff_adobe_deflate")
     fig, ax = plt.subplots(figsize=(5.2, 4.4))
     im = ax.imshow(pr_pa, cmap="jet", vmin=0, vmax=vmax); ax.set_xticks([]); ax.set_yticks([])
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02); cb.set_label("Traction stress (Pa)")
@@ -250,6 +251,7 @@ def main():
     ap.add_argument("--device", default=None)
     ap.add_argument("--skip-dataset", action="store_true", help="do not copy the images into dataset/")
     ap.add_argument("--skip-png", action="store_true", help="metrics only (no panel/prediction images)")
+    ap.add_argument("--with-tif", action="store_true", help="also write prediction_Pa.tif (32-bit map in Pa, ~4 MB each)")
     ap.add_argument("--with-staged", action="store_true", help="also copy the retrained staged generators")
     ap.add_argument("--limit", type=int, default=None, help="images per manifest (smoke test)")
     ap.add_argument("--xlsx-only", action="store_true", help="only (re)write results.xlsx from results_csv/")
@@ -341,7 +343,7 @@ def main():
                                 warn = " | TRAINING IMAGE: not for evaluation" if role == "train" else ""
                                 save_maps(pdir, bf, tn * yt, qn * yt, yt, d,
                                           f"{role} | {sl} | {smp} | {r.get('condition', '')} | {d['substrate_input']}{warn}",
-                                          plt, Image)
+                                          plt, Image, a.with_tif)
             print(f"  done {man}", flush=True)
 
     P = pd.DataFrame(rows)
@@ -429,7 +431,7 @@ def main():
         f"Created {datetime.date.today().isoformat()} with experiments/build_results_package.py (S2F commit {commit}).", "",
         "- `dataset/`: image pairs (bright field, GT traction-stress map) by role and set; `splits/`: the split files.",
         "- `predictions/<model>/<role>/<set>/<sample>/`: panel.png (BF | GT | prediction with metrics), prediction.png,"
-        " prediction_Pa.tif (32-bit, Pa).",
+        " (prediction_Pa.tif, 32-bit map in Pa, only if built with --with-tif).",
         "- `results.xlsx` / `results_csv/`: README (definitions), sets, models, tests, per-image sheets, all_models.",
         "- `checkpoints/`: model files and MODEL_CARD.md (SHA-256, inputs, headline metrics).", "",
         "Only validation and test images are used for any reported number; training-image predictions are included "
