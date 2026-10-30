@@ -1,0 +1,72 @@
+group,manifest,sample_dir,old_r,old_mse,old_msssim
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_05,0.7713,0.004647,0.8531
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_11,0.7523,0.00499,0.9165
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_12,0.6479,0.013231,0.8116
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_14,0.647,0.004319,0.9167
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_17,0.7554,0.002626,0.9241
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_18,0.5971,0.008916,0.8745
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_19,0.8378,0.005219,0.8652
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_20,0.7454,0.001223,0.9379
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_22,0.841,0.001694,0.9255
+TGF SET I,test_fibro_TGFb_setI,singlecell_external/fibro_TGFb_setI/Position_23,0.5366,0.004906,0.8988
+6 kPa SET VI,alltune_val,singlecell/test/Position_01_Fibros_SET_VI_for_Kaveh,0.7032,0.004509,0.7602
+6 kPa SET VI,alltune_val,singlecell/test/Position_02_Fibros_SET_VI_for_Kaveh,0.7824,0.003156,0.8263
+6 kPa SET VI,alltune_val,singlecell/test/Position_03_Fibros_SET_VI_for_Kaveh,0.7154,0.002326,0.8109
+6 kPa SET VI,alltune_val,singlecell/test/Position_04_Fibros_SET_VI_for_Kaveh,0.7256,0.004227,0.8116
+6 kPa SET VI,alltune_val,singlecell/test/Position_05_Fibros_SET_VI_for_Kaveh,0.7351,0.004025,0.8086
+6 kPa SET VI,alltune_val,singlecell/test/Position_06_Fibros_SET_VI_for_Kaveh,0.5985,0.006124,0.6489
+6 kPa SET VI,alltune_val,singlecell/test/Position_08_Fibros_SET_VI_for_Kaveh,0.8692,0.001144,0.8186
+6 kPa SET VI,alltune_val,singlecell/test/Position_09_Fibros_SET_VI_for_Kaveh,0.7549,0.000735,0.7912
+6 kPa SET VI,alltune_val,singlecell/test/Position_12_Fibros_SET_VI_for_Kaveh,0.7459,0.004678,0.6926
+6 kPa SET VI,alltune_val,singlecell/test/Position_13_Fibros_SET_VI_for_Kaveh,0.8277,0.004207,0.8125
+6 kPa SET VI,alltune_val,singlecell/test/Position_14_Fibros_SET_VI_for_Kaveh,0.7719,0.005343,0.7802
+6 kPa SET VI,alltune_val,singlecell/test/Position_15_Fibros_SET_VI_for_Kaveh,0.7597,0.001431,0.8455
+6 kPa SET VI,alltune_val,singlecell/test/Position_16_Fibros_SET_VI_for_Kaveh,0.5944,0.011437,0.713
+6 kPa SET VI,alltune_val,singlecell/test/Position_17_Fibros_SET_VI_for_Kaveh,0.7963,0.001972,0.812
+6 kPa SET VI,alltune_val,singlecell/test/Position_18_Fibros_SET_VI_for_Kaveh,0.8603,0.002725,0.7844
+6 kPa SET VI,alltune_val,singlecell/test/Position_19_Fibros_SET_VI_for_Kaveh,0.8105,0.00766,0.7838
+6 kPa SET VI,alltune_val,singlecell/test/Position_20_Fibros_SET_VI_for_Kaveh,0.8119,0.0038,0.8167
+6 kPa SET VI,alltune_val,singlecell/test/Position_22_Fibros_SET_VI_for_Kaveh,0.8209,0.003466,0.785
+6 kPa SET VI,alltune_val,singlecell/test/Position_23_Fibros_SET_VI_for_Kaveh,0.7615,0.006697,0.7501
+6 kPa SET VI,alltune_val,singlecell/test/Position_24_Fibros_SET_VI_for_Kaveh,0.8581,0.002806,0.719
+6 kPa SET VI,alltune_val,singlecell/test/Position_25_Fibros_SET_VI_for_Kaveh,0.7328,0.005913,0.7725
+6 kPa SET VI,alltune_val,singlecell/test/Position_26_Fibros_SET_VI_for_Kaveh,0.7838,0.001939,0.7833
+6 kPa SET VI,alltune_val,singlecell/test/Position_28_Fibros_SET_VI_for_Kaveh,0.7253,0.005491,0.7188
+6 kPa SET VI,alltune_val,singlecell/test/Position_30_Fibros_SET_VI_for_Kaveh,0.8039,0.005948,0.757
+6 kPa SET VI,alltune_val,singlecell/test/Position_32_Fibros_SET_VI_for_Kaveh,0.862,0.002449,0.7987
+6 kPa SET VI,alltune_val,singlecell/test/Position_33_Fibros_SET_VI_for_Kaveh,0.6306,0.004659,0.6939
+6 kPa SET VI,alltune_val,singlecell/test/Position_34_Fibros_SET_VI_for_Kaveh,0.5138,0.023535,0.6697
+6 kPa SET VI,alltune_val,singlecell/test/Position_37_Fibros_SET_VI_for_Kaveh,0.5253,0.004453,0.5556
+6 kPa SET VI,alltune_val,singlecell/test/Position_38_Fibros_SET_VI_for_Kaveh,0.7842,0.00305,0.8075
+6 kPa SET VI,alltune_val,singlecell/test/Position_40_Fibros_SET_VI_for_Kaveh,0.4729,0.003786,0.5823
+6 kPa SET VI,alltune_val,singlecell/test/Position_41_Fibros_SET_VI_for_Kaveh,0.6674,0.002469,0.781
+6 kPa SET VI,alltune_val,singlecell/test/Position_43_Fibros_SET_VI_for_Kaveh,0.8064,0.013651,0.7403
+6 kPa SET VI,alltune_val,singlecell/test/Position_44_Fibros_SET_VI_for_Kaveh,0.7852,0.009635,0.8052
+6 kPa SET VI,alltune_val,singlecell/test/Position_45_Fibros_SET_VI_for_Kaveh,0.4518,0.00216,0.7403
+6 kPa SET VI,alltune_val,singlecell/test/Position_46_Fibros_SET_VI_for_Kaveh,0.6607,0.001857,0.7936
+6 kPa SET VI,alltune_val,singlecell/test/Position_48_Fibros_SET_VI_for_Kaveh,0.7512,0.002922,0.7217
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_03,0.3639,0.006131,0.905
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_08,0.5513,0.004346,0.8854
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_11,0.4603,0.007148,0.9107
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_12,0.7592,0.005637,0.8774
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_13,0.6944,0.008652,0.9023
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_17,0.6911,0.00821,0.833
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_26,0.2274,0.002678,0.8924
+Y27632 SET I,test_fibro_Y27632_setI,singlecell_external/fibro_Y27632_setI/Position_27,0.7242,0.003538,0.8887
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_04,0.4318,0.004539,0.8388
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_06,0.7064,0.002303,0.8892
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_10,0.7434,0.001065,0.8834
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_11,0.16,0.016735,0.8
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_12,0.5655,0.002269,0.8858
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_14,0.7593,0.000744,0.921
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_17,0.704,0.002997,0.9198
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_18,0.4325,0.003533,0.8464
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_20,0.7383,0.001572,0.8989
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_21,0.6851,0.003512,0.8736
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_22,0.4901,0.001335,0.8975
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_23,0.6394,0.001039,0.9153
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_26,0.6767,0.001318,0.8941
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_27,0.77,0.000831,0.9312
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_28,0.6299,0.002126,0.8877
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_29,0.6397,0.002425,0.8832
+1 kPa SET III,test_fibro_1kPa_setIII,singlecell_external/fibro_1kPa_setIII/Position_30,0.3499,0.004528,0.8773
