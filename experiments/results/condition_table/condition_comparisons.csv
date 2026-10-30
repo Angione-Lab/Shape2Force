@@ -1,0 +1,13 @@
+source,comparison,n,mean_ratio,p_mann_whitney,p_holm
+"Mine: validation + test images, GT in force region (Pa)",10 kPa vs 1 kPa,20 vs 32,2.898120261953202,4.1868040653156616e-08,1.2560412195946985e-07
+"Mine: validation + test images, GT in force region (Pa)","6 kPa fibronectin vs 6 kPa collagen, untreated",40 vs 46,0.7637656837889766,0.000508529155844799,0.001017058311689598
+"Mine: validation + test images, GT in force region (Pa)",6 kPa Y-27632 vs 6 kPa DMSO,35 vs 37,0.4909157084854241,3.553997182538057e-09,1.4215988730152228e-08
+"Mine: validation + test images, GT in force region (Pa)",6 kPa TGF-β vs 6 kPa DMSO,15 vs 37,0.9514614771907592,0.6422525439217421,0.6422525439217421
+Lautaro: values as in his Figs 2-3 cohorts (force per cell area),10 kPa vs 1 kPa,87 vs 50,2.2848470996382244,6.30758850786487e-18,2.523035403145948e-17
+Lautaro: values as in his Figs 2-3 cohorts (force per cell area),"6 kPa fibronectin vs 6 kPa collagen, untreated",40 vs 153,0.9434890422537873,0.3059796929124282,0.3059796929124282
+Lautaro: values as in his Figs 2-3 cohorts (force per cell area),6 kPa Y-27632 vs 6 kPa DMSO,47 vs 29,0.5735004396711919,1.2231816324988069e-05,3.669544897496421e-05
+Lautaro: values as in his Figs 2-3 cohorts (force per cell area),6 kPa TGF-β vs 6 kPa DMSO,81 vs 29,1.3532242276884088,0.0007111865695486217,0.0014223731390972435
+"Lautaro: his values, cells imaged in that condition only",10 kPa vs 1 kPa,20 vs 32,2.4609291256729815,2.968798785496146e-07,1.1875195141984585e-06
+"Lautaro: his values, cells imaged in that condition only","6 kPa fibronectin vs 6 kPa collagen, untreated",40 vs 153,0.9434890422537873,0.3059796929124282,0.6119593858248564
+"Lautaro: his values, cells imaged in that condition only",6 kPa Y-27632 vs 6 kPa DMSO,35 vs 10,0.4708820549685434,0.00012516498020893657,0.0003754949406268097
+"Lautaro: his values, cells imaged in that condition only",6 kPa TGF-β vs 6 kPa DMSO,15 vs 10,1.0517636602195295,0.5982177644910319,0.6119593858248564
