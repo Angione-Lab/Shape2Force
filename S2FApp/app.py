@@ -277,41 +277,18 @@ with st.sidebar:
     if model_type == "single_cell":
         try:
             with st.container(border=False, key="s2f_grp_conditions"):
-                st.markdown('<p class="s2f-form-label s2f-form-label--section">Substrate setting (model input)</p>', unsafe_allow_html=True)
-                conditions_source = st.radio(
-                    "Substrate setting",
-                    ["Reference (6 kPa)", "Preset", "Manual"],
-                    horizontal=True,
+                st.markdown('<p class="s2f-form-label s2f-form-label--section">Substrate</p>', unsafe_allow_html=True)
+                substrate_mode_label = "preset"
+                substrates = list_substrates()
+                if REFERENCE_SUBSTRATE in substrates:   # the default preset is listed first
+                    substrates = [REFERENCE_SUBSTRATE] + [s for s in substrates if s != REFERENCE_SUBSTRATE]
+                substrate_val = st.selectbox(
+                    "Substrate", substrates, index=0,
+                    format_func=lambda s: "Default (6 kPa)" if s == REFERENCE_SUBSTRATE
+                    else get_settings_of_category(s).get("name", s),
+                    help="Young's modulus and pixel size of the substrate, given to the model as input channels.",
                     label_visibility="collapsed",
-                    help="The released model is most accurate with the 6 kPa reference setting for all images, "
-                         "including cells on 1 or 10 kPa gels (sensitivity analysis in the paper). Other settings "
-                         "rescale the prediction and are provided for exploration only.",
                 )
-                if conditions_source == "Reference (6 kPa)":
-                    substrate_val = REFERENCE_SUBSTRATE
-                    st.caption("Recommended. Used for all results in the paper.")
-                elif conditions_source == "Preset":
-                    substrate_mode_label = "preset"
-                    substrates = list_substrates()
-                    substrate_val = st.selectbox(
-                        "Preset", substrates,
-                        index=substrates.index(REFERENCE_SUBSTRATE) if REFERENCE_SUBSTRATE in substrates else 0,
-                        help="Presets from config/substrate_settings.json", label_visibility="collapsed",
-                    )
-                    if get_settings_of_category(substrate_val) != get_settings_of_category(REFERENCE_SUBSTRATE):
-                        st.warning("Settings other than the 6 kPa reference reduce accuracy (e.g. the 1 kPa setting "
-                                   "makes predictions about 5 times smaller). Use for exploration only.")
-                else:
-                    substrate_mode_label = "manual"
-                    manual_pixelsize = st.number_input("Pixel-size setting (TFM units, as in training)", min_value=0.1,
-                                                       max_value=50.0, value=3.0769, step=0.1, format="%.4f",
-                                                       help="Training used 3.0769 (fibroblasts) to 9.8138.")
-                    manual_young = st.number_input("Young's modulus (Pa)", min_value=100.0, max_value=100000.0,
-                                                   value=6000.0, step=100.0, format="%.0f")
-                    substrate_config = {"pixelsize": manual_pixelsize, "young": manual_young}
-                    use_manual = True
-                    if (abs(manual_pixelsize - 3.0769) > 1e-3) or manual_young != 6000.0:
-                        st.warning("Settings other than the 6 kPa reference reduce accuracy. Use for exploration only.")
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
 
