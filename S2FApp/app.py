@@ -277,18 +277,38 @@ with st.sidebar:
     if model_type == "single_cell":
         try:
             with st.container(border=False, key="s2f_grp_conditions"):
-                st.markdown('<p class="s2f-form-label s2f-form-label--section">Substrate</p>', unsafe_allow_html=True)
-                substrate_mode_label = "preset"
-                substrates = list_substrates()
-                if REFERENCE_SUBSTRATE in substrates:   # the default preset is listed first
-                    substrates = [REFERENCE_SUBSTRATE] + [s for s in substrates if s != REFERENCE_SUBSTRATE]
-                substrate_val = st.selectbox(
-                    "Substrate", substrates, index=0,
-                    format_func=lambda s: "Default (6 kPa)" if s == REFERENCE_SUBSTRATE
-                    else get_settings_of_category(s).get("name", s),
-                    help="Young's modulus and pixel size of the substrate, given to the model as input channels.",
-                    label_visibility="collapsed",
+                st.markdown(
+                    '<p class="s2f-form-label s2f-form-label--section">Substrate setting (model input)</p>',
+                    unsafe_allow_html=True,
+                    help="Young's modulus of the gel and pixel size of the TFM reconstruction, given to the model "
+                         "as two input channels. Select a preset (default: 6 kPa) or enter the values manually.",
                 )
+                conditions_source = st.radio(
+                    "Substrate setting", ["Preset", "Manual"],
+                    horizontal=True, label_visibility="collapsed",
+                )
+                if conditions_source == "Preset":
+                    substrate_mode_label = "preset"
+                    substrates = list_substrates()
+                    if REFERENCE_SUBSTRATE in substrates:   # the default preset is listed first
+                        substrates = [REFERENCE_SUBSTRATE] + [s for s in substrates if s != REFERENCE_SUBSTRATE]
+                    substrate_val = st.selectbox(
+                        "Preset", substrates, index=0,
+                        format_func=lambda s: "Default (6 kPa)" if s == REFERENCE_SUBSTRATE
+                        else get_settings_of_category(s).get("name", s),
+                        label_visibility="collapsed",
+                    )
+                else:
+                    substrate_mode_label = "manual"
+                    manual_pixelsize = st.number_input(
+                        "Pixel size of TFM reconstruction", min_value=0.1, max_value=50.0, value=3.0769, step=0.1,
+                        format="%.4f",
+                        help="Model input. The presets use 3.0769 for fibroblasts and 6.1538 for U2OS cells.")
+                    manual_young = st.number_input(
+                        "Young's modulus (Pa)", min_value=100.0, max_value=100000.0, value=6000.0, step=100.0,
+                        format="%.0f", help="Model input. Young's modulus of the gel.")
+                    substrate_config = {"pixelsize": manual_pixelsize, "young": manual_young}
+                    use_manual = True
         except FileNotFoundError:
             st.error("config/substrate_settings.json not found")
 
